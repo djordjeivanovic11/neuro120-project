@@ -16,7 +16,17 @@ Design rationale
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+# When True, :func:`pipeline` ``run_*`` restorers return values from
+# ``results/cache/pipe_*.joblib`` when a matching key exists (faster
+# re-runs). Set env ``NEURO120_CACHE_PIPELINE=0`` to always recompute.
+USE_COMPUTATION_CACHE = os.environ.get("NEURO120_CACHE_PIPELINE", "1") not in (
+    "0",
+    "false",
+    "False",
+)
 
 
 # reproducibility seed shared by every resampling and cv step

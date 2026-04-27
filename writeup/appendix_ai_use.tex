@@ -1,0 +1,27 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\begin{document}
+
+\section*{Appendix B: AI use}
+
+\subsection*{Tools used}
+Cursor (Anthropic Claude models, via the in-editor Agent mode) was the only generative AI used during this project. No AI tool wrote any part of the Introduction, Abstract, or Discussion. Those sections were entirely written by us from an outline. Several hours of human effort went into the methods and results sections of the paper, although some AI was used in a very early iteration of those sections. The final draft reflects the thoughts, analysis, and revisions of multiple group members.
+
+\subsection*{What AI was used for}
+\begin{enumerate}
+  \item \textbf{Code scaffolding.} Initial module boilerplate (\texttt{config.py} constants, the load-patient to build-supergrid flow in \texttt{bellier\_data.py}, and the plotting helpers in \texttt{plots.py}) was drafted with AI assistance from a list of requirements we specified, then refactored by us. We verified every output against the reference MATLAB scripts packaged with the dataset under \texttt{data/norman\_haignere\_2022/}, in the \texttt{reference\_code} subfolder of the project repository.
+
+  \item \textbf{Critical review.} We used Cursor as an adversarial reviewer on an earlier draft. It identified the small-subset ceiling-effect explanation for ``song only $>$ all'' and suggested the acoustic-partialled divergence as the single highest-value mechanistic upgrade, which became the main new result in section~3.5 of the write-up.
+
+  \item \textbf{\LaTeX{} assistance.} The \LaTeX{} scaffolding (document class line, figure-include macros, cross-referencing) was AI-assisted. All prose inside it is ours.
+
+  \item \textbf{Literature surfacing.} AI proposed a candidate reading list of speech- and music-side STG papers (references 2, 3, 5--8, 11, and 12 in the bibliography). For every entry we looked up the abstract and at least one figure ourselves before citing.
+\end{enumerate}
+
+\subsection*{What AI got wrong or misleading}
+AI initially over-committed to a ``song electrodes are disproportionately informative'' framing that matched our early intuition but was inconsistent with the matched random-subset control once we ran it. We corrected the framing after seeing the null distribution. AI also proposed a larger autoencoder-based extension that we rejected after running the non-linear supplement and seeing no gain over the linear baseline. Keeping the autoencoder as a one-paragraph negative result rather than a centerpiece was our decision.
+
+\subsection*{Reflection}
+The most useful role AI played was adversarial. Red-teaming our interpretations caught the small-subset ceiling-effect issue before it reached the draft. The most dangerous failure mode we observed was confident paraphrasing of primary literature we had not read ourselves. We countered that by checking the abstract and at least one figure of every paper we cited.
+
+\end{document}

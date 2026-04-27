@@ -24,7 +24,7 @@ from train into test and inflate every score.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -448,6 +448,8 @@ def run_cnn_subset(
     if chan_idx.size < X_tensor.shape[1]:
         X_tensor = X_tensor[:, chan_idx, :]
 
+    device = torch.device("cpu")
+
     # fit and predict callback for a single outer fold
     def _fit(Xtr, ytr, Xte, k, rng):
         # per fold electrode standardisation computed on train only
@@ -459,32 +461,43 @@ def run_cnn_subset(
 
         # deterministic model weights per fold
         torch.manual_seed(seed + k)
-        net = _build_cnn(Xtr_n.shape[1], Xtr_n.shape[2])
+        net = _build_cnn(Xtr_n.shape[1], Xtr_n.shape[2]).to(device)
         opt = torch.optim.Adam(net.parameters(), lr=lr)
 
         # reweight the positive class when the split is imbalanced
         pos = max(1e-3, min(1 - 1e-3, float(ytr_f.mean())))
-        crit = nn.BCEWithLogitsLoss(
-            pos_weight=torch.tensor([(1 - pos) / pos], dtype=torch.float32)
-        )
+        pos_w = torch.tensor([(1 - pos) / pos], dtype=torch.float32, device=device)
+        crit = nn.BCEWithLogitsLoss(pos_weight=pos_w)
 
-        # mini batch training, the shared rng makes the shuffle sequence reproducible
-        Xtr_t = torch.from_numpy(Xtr_n)
-        ytr_t = torch.from_numpy(ytr_f)
+        # Own storage (not numpy-backed) so autograd is never blocked by from_numpy / inference mode.
+        Xtr_t = torch.as_tensor(Xtr_n, dtype=torch.float32, device=device).contiguous()
+        ytr_t = torch.as_tensor(ytr_f, dtype=torch.float32, device=device).contiguous()
+
         net.train()
         for _ in range(epochs):
             idx = rng.permutation(len(Xtr_t))
             for i in range(0, len(idx), batch_size):
                 b = idx[i : i + batch_size]
-                opt.zero_grad()
-                loss = crit(net(Xtr_t[b]), ytr_t[b])
-                loss.backward()
+                if b.size == 0:
+                    continue
+                opt.zero_grad(set_to_none=True)
+                # Full train step under grad; avoids failures if global grad was disabled
+                # (e.g. other libs loaded in the same notebook kernel).
+                with torch.set_grad_enabled(True):
+                    logits = net(Xtr_t[b])
+                    loss = crit(logits, ytr_t[b])
+                    if not loss.requires_grad:
+                        raise RuntimeError(
+                            "CNN loss is not connected to the autograd graph; check inputs and device."
+                        )
+                    loss.backward()
                 opt.step()
 
         # score the test fold then threshold at a half to get hard labels
         net.eval()
+        Xte_t = torch.as_tensor(Xte_n, dtype=torch.float32, device=device)
         with torch.no_grad():
-            scores = torch.sigmoid(net(torch.from_numpy(Xte_n))).numpy()
+            scores = torch.sigmoid(net(Xte_t)).cpu().numpy()
         return (scores > 0.5).astype(int), scores
 
     # reuse the shared cv scaffolding and tack on cnn specific metadata
@@ -524,7 +537,7 @@ def run_vocal_instrumental_decoder(
     supergrid: Dict[str, object],
     subsets_idx: Dict[str, np.ndarray],
     vocal_mask: np.ndarray,
-    subsets: Sequence[str] = DEFAULT_SUBSETS,
+    subsets: Optional[Sequence[str]] = None,
     n_boot: int = BELLIER_BOOT_N,
     seed: int = RANDOM_STATE,
 ) -> Dict[str, object]:
@@ -543,8 +556,12 @@ def run_vocal_instrumental_decoder(
         Output of :func:`bellier_data.electrode_subsets`.
     vocal_mask : np.ndarray
         Sample-aligned vocal-present mask of shape ``(T,)``.
-    subsets : Sequence[str], default=:data:`DEFAULT_SUBSETS`
-        Which keys of ``subsets_idx`` to run.
+    subsets : Sequence[str] | None, default ``None``
+        Which keys of ``subsets_idx`` to run. If ``None`` (the default), runs
+        every key present in ``subsets_idx`` (so ad-hoc dicts like
+        ``{"top7": ...}`` do not also require a dummy ``"all"`` key). For the
+        full anatomical grid from :func:`bellier_data.electrode_subsets`, this
+        is the same four subsets as :data:`DEFAULT_SUBSETS` in the usual key order.
     n_boot : int, default=:data:`config.BELLIER_BOOT_N`
         Bootstrap replicates for the balanced-accuracy CIs.
     seed : int, default=:data:`config.RANDOM_STATE`
@@ -563,13 +580,18 @@ def run_vocal_instrumental_decoder(
     """
     hfa = np.asarray(supergrid["hfa"])
 
+    if subsets is None:
+        run_subsets: Sequence[str] = tuple(subsets_idx.keys())
+    else:
+        run_subsets = subsets
+
     # per subset accumulators for the summary table and raw results
     rows: List[Dict[str, object]] = []
     fold_scores: Dict[str, Dict[str, List[dict]]] = {}
     cnn_ran: Dict[str, bool] = {}
     raw: Dict[tuple, dict] = {}
 
-    for name in subsets:
+    for name in run_subsets:
         # slice the supergrid down to the requested electrodes
         idx = np.asarray(subsets_idx[name])
         if idx.size == 0:

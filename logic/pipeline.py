@@ -29,13 +29,17 @@ Design notes
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import sys
+import warnings
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
+from cache_io import has_object, load_object, save_object
 from config import (
     BOOTSTRAP_N,
     CACHE_DIR,
@@ -48,6 +52,7 @@ from config import (
     STEP_SEC,
     SUBSET_SIZE,
     TAB_DIR,
+    USE_COMPUTATION_CACHE,
     WINDOW_SEC,
     ensure_dirs,
 )
@@ -87,6 +92,16 @@ from plots import (
     plot_time_resolved_curves,
 )
 
+# Optional: TensorFlow + Haignere model (only :func:`bellier_fit_vocal_components` needs this).
+# Always define the name (some environments raise ImportError, not ModuleNotFoundError, or the
+# import is skipped in odd reload orders); missing binding caused NameError in callers.
+train_simple: Any = None
+try:
+    from HaignereModel import train_simple as _haignere_train_simple
+
+    train_simple = _haignere_train_simple
+except (ModuleNotFoundError, ImportError, OSError):  # pragma: no cover
+    pass
 
 
 # small io helpers for tables and cached arrays
@@ -104,8 +119,62 @@ def _save_cache(stem: str, **arrays) -> Path:
     return path
 
 
+_CACHE_MISS = object()
+
+
+def _use_cache_flag(local: Optional[bool]) -> bool:
+    return USE_COMPUTATION_CACHE if local is None else local
+
+
+def _pipeline_cache_try_load(key: str, *, use_cache: Optional[bool], force: bool) -> Any:
+    if force or not _use_cache_flag(use_cache):
+        return _CACHE_MISS
+    name = f"pipe_{key}"
+    if has_object(name):
+        return load_object(name)
+    return _CACHE_MISS
+
+
+def _pipeline_cache_store(key: str, result: Any, *, use_cache: Optional[bool]) -> Any:
+    if not _use_cache_flag(use_cache):
+        return result
+    name = f"pipe_{key}"
+    try:
+        save_object(name, result)
+    except Exception as exc:  # noqa: BLE001
+        warnings.warn(
+            f"Could not write pipeline cache '{name}': {exc}",
+            UserWarning,
+            stacklevel=2,
+        )
+    return result
+
+
+def _data_tag(ds: dict) -> str:
+    m = ds.get("meta", {})
+    return f"e{m.get('n_electrodes', 0)}_s{m.get('n_stimuli', 0)}_t{m.get('n_time', 0)}"
+
+
+def _supergrid_tag(supergrid: dict) -> str:
+    h = np.asarray(supergrid["hfa"])
+    return f"t{h.shape[0]}_e{h.shape[1]}"
+
+
+def _arr_key(a) -> str:
+    """Short stable hash of array contents (for cache keys)."""
+    b = np.asarray(a).tobytes()
+    return hashlib.blake2b(b, digest_size=8).hexdigest()
+
+
 # top level sections driven by the notebook, one per figure or table
-def run_baseline_3class(ds: dict, time_window=EARLY_WINDOW, seed=RANDOM_STATE):
+def run_baseline_3class(
+    ds: dict,
+    time_window=EARLY_WINDOW,
+    seed=RANDOM_STATE,
+    *,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Step 1 -- clean grouped-CV 3-class baseline (Figure 2a).
 
     Fits a balanced logistic regression on a single early-window
@@ -114,6 +183,11 @@ def run_baseline_3class(ds: dict, time_window=EARLY_WINDOW, seed=RANDOM_STATE):
     should be above chance on song/music/speech even before any of
     the subset analyses.
     """
+    ckey = f"baseline3_tw{time_window[0]}-{time_window[1]}_{_data_tag(ds)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     X = window_features(ds["X_tensor"], ds["t"], time_window)
     res = run_grouped_cv(X, ds["y_coarse"], ds["stimulus_id"], n_splits=N_SPLITS, seed=seed)
     m = res["metrics"]
@@ -136,10 +210,21 @@ def run_baseline_3class(ds: dict, time_window=EARLY_WINDOW, seed=RANDOM_STATE):
         ]
     )
     _save_table(summary, "baseline_3class_summary")
-    return {"summary": summary, "metrics": m, "figure": fig_paths}
+    return _pipeline_cache_store(
+        ckey,
+        {"summary": summary, "metrics": m, "figure": fig_paths},
+        use_cache=use_cache,
+    )
 
 
-def run_random_subset_control(ds: dict, *, n_subsets=RANDOM_SUBSETS_N, seed=RANDOM_STATE):
+def run_random_subset_control(
+    ds: dict,
+    *,
+    n_subsets=RANDOM_SUBSETS_N,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Step 2 (headline) -- matched random-subset null for song-vs-music.
 
     The comparison that drives the paper's main claim: the song-only
@@ -158,6 +243,11 @@ def run_random_subset_control(ds: dict, *, n_subsets=RANDOM_SUBSETS_N, seed=RAND
 
     Saves Figure 4 (two panels) plus three CSV tables.
     """
+    ckey = f"randsubset_ns{n_subsets}_ss{SUBSET_SIZE}_{_data_tag(ds)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = define_fixed_subsets(ds["electrode_group"])
     extras = {"all": subs["all"], "no_song": subs["no_song"]}
 
@@ -166,8 +256,8 @@ def run_random_subset_control(ds: dict, *, n_subsets=RANDOM_SUBSETS_N, seed=RAND
     rows: List[dict] = []
 
     for metric, xlabel, title in [
-        ("bacc", "song-vs-music balanced accuracy", "Matched random-subset control (balanced accuracy)"),
-        ("divergence", "song-vs-music divergence", "Matched random-subset control (RDM divergence)"),
+        ("bacc", "song vs. music balanced accuracy", "Matched random-subset control: balanced accuracy"),
+        ("divergence", "song vs. music divergence", "Matched random-subset control: RDM divergence"),
     ]:
         res = compare_true_vs_random_subsets(
             ds["X_tensor"],
@@ -233,10 +323,21 @@ def run_random_subset_control(ds: dict, *, n_subsets=RANDOM_SUBSETS_N, seed=RAND
             long_rows.append({"metric": metric, "null_score": float(v)})
     _save_table(pd.DataFrame(long_rows), "random_subset_control_null_long")
 
-    return {"summary": summary, "by_metric": out_by_metric, "figures": figs}
+    return _pipeline_cache_store(
+        ckey,
+        {"summary": summary, "by_metric": out_by_metric, "figures": figs},
+        use_cache=use_cache,
+    )
 
 
-def run_time_resolved_songmusic(ds: dict, *, n_boot=200, seed=RANDOM_STATE):
+def run_time_resolved_songmusic(
+    ds: dict,
+    *,
+    n_boot=200,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Step 3 -- time-resolved song-vs-music decoding per subset (Figure 5).
 
     Slides a short window across the trial and fits a fresh logistic
@@ -245,6 +346,13 @@ def run_time_resolved_songmusic(ds: dict, *, n_boot=200, seed=RANDOM_STATE):
     and AUC together with a per-window bootstrap CI computed on
     held-out predictions (so the CI does not leak across CV folds).
     """
+    ckey = (
+        f"time_sm_nb{n_boot}_w{WINDOW_SEC}_st{STEP_SEC}_{_data_tag(ds)}_s{seed}"
+    )
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = define_fixed_subsets(ds["electrode_group"])
     curves = {}
     rows = []
@@ -291,11 +399,21 @@ def run_time_resolved_songmusic(ds: dict, *, n_boot=200, seed=RANDOM_STATE):
         stem="fig5_songmusic_time_curves",
         ci_key="bacc_ci",
     )
-    return {"curves": curves, "summary": summary, "figure": fig_paths}
+    return _pipeline_cache_store(
+        ckey,
+        {"curves": curves, "summary": summary, "figure": fig_paths},
+        use_cache=use_cache,
+    )
 
 
 def run_formalized_divergence(
-    ds: dict, *, n_boot=BOOTSTRAP_N, n_perm=PERM_N, seed=RANDOM_STATE
+    ds: dict,
+    *,
+    n_boot=BOOTSTRAP_N,
+    n_perm=PERM_N,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
 ):
     """Step 4 -- time-resolved divergence with bootstrap CI + permutation null.
 
@@ -309,6 +427,11 @@ def run_formalized_divergence(
 
     Produces one combined Figure 3 and one joint summary table.
     """
+    ckey = f"formdiv_nb{n_boot}_np{n_perm}_w{WINDOW_SEC}_st{STEP_SEC}_{_data_tag(ds)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = define_fixed_subsets(ds["electrode_group"])
     rows = []
     figs: Dict[str, dict] = {}
@@ -398,7 +521,11 @@ def run_formalized_divergence(
 
     summary = pd.DataFrame(rows)
     _save_table(summary, "divergence_stats")
-    return {"curves": curves_per_subset, "summary": summary, "figures": figs}
+    return _pipeline_cache_store(
+        ckey,
+        {"curves": curves_per_subset, "summary": summary, "figures": figs},
+        use_cache=use_cache,
+    )
 
 
 def run_acoustic_partition(
@@ -408,6 +535,8 @@ def run_acoustic_partition(
     ridge: float = 1.0,
     feature_set: str = "A_full",
     seed: int = RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
 ):
     """Acoustic-partialled song-vs-music divergence (mechanistic add-on).
 
@@ -439,6 +568,14 @@ def run_acoustic_partition(
         value (~1) stabilises the fit when some acoustic features are
         nearly colinear.
     """
+    ckey = (
+        f"acpart_{feature_set}_r{ridge}_np{n_perm}_w{WINDOW_SEC}_st{STEP_SEC}_"
+        f"{_data_tag(ds)}_s{seed}"
+    )
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = define_fixed_subsets(ds["electrode_group"])
     acoustic = load_acoustic_features(stim_names_target=ds["stimulus_id"])
     if feature_set not in acoustic:
@@ -522,16 +659,26 @@ def run_acoustic_partition(
 
     summary = pd.DataFrame(rows)
     _save_table(summary, "acoustic_partition_divergence")
-    return {
-        "summary": summary,
-        "curves": curves_per_subset,
-        "figures": figs,
-        "feature_set": feature_set,
-        "ridge": ridge,
-    }
+    return _pipeline_cache_store(
+        ckey,
+        {
+            "summary": summary,
+            "curves": curves_per_subset,
+            "figures": figs,
+            "feature_set": feature_set,
+            "ridge": ridge,
+        },
+        use_cache=use_cache,
+    )
 
 
-def run_cross_temporal(ds: dict, *, seed=RANDOM_STATE):
+def run_cross_temporal(
+    ds: dict,
+    *,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Step 5 -- cross-temporal generalisation heatmaps (Figure 6).
 
     Trains a decoder at window ``t`` and tests at every window ``t'``
@@ -540,6 +687,11 @@ def run_cross_temporal(ds: dict, *, seed=RANDOM_STATE):
     stable representation; diagonal-only structure indicates a
     rapidly-drifting code.
     """
+    ckey = f"cross_temp_w{WINDOW_SEC}_st{STEP_SEC}_{_data_tag(ds)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = define_fixed_subsets(ds["electrode_group"])
     results = {}
     for name in ("all", "no_song", "song_only"):
@@ -588,10 +740,21 @@ def run_cross_temporal(ds: dict, *, seed=RANDOM_STATE):
     summary = pd.DataFrame(rows)
     _save_table(summary, "cross_temporal_summary")
 
-    return {"results": results, "summary": summary, "figure": fig_paths}
+    return _pipeline_cache_store(
+        ckey,
+        {"results": results, "summary": summary, "figure": fig_paths},
+        use_cache=use_cache,
+    )
 
 
-def run_loo_clean(ds: dict, *, n_perm=1000, seed=RANDOM_STATE):
+def run_loo_clean(
+    ds: dict,
+    *,
+    n_perm=1000,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Step 6 -- leave-one-electrode-out contributions (Figure 7).
 
     For every electrode we drop it, refit, and record
@@ -608,6 +771,11 @@ def run_loo_clean(ds: dict, *, n_perm=1000, seed=RANDOM_STATE):
     really matter more than other electrodes for song-vs-music, the
     observed difference should exceed the shuffled null.
     """
+    ckey = f"loo_np{n_perm}_w{WINDOW_SEC}_st{STEP_SEC}_{_data_tag(ds)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     eg = np.asarray(ds["electrode_group"])
     n_e = eg.size
     X_all = ds["X_tensor"]
@@ -715,17 +883,27 @@ def run_loo_clean(ds: dict, *, n_perm=1000, seed=RANDOM_STATE):
         ylabel="drop in divergence when electrode removed",
         title="Leave-one-electrode-out (song vs music, divergence)",
     )
-    return {
-        "df": df,
-        "group_summary": group_summary,
-        "observed_stat": observed_stat,
-        "null_stats": null_stats,
-        "p_value": p_value,
-        "figure": fig_paths,
-    }
+    return _pipeline_cache_store(
+        ckey,
+        {
+            "df": df,
+            "group_summary": group_summary,
+            "observed_stat": observed_stat,
+            "null_stats": null_stats,
+            "p_value": p_value,
+            "figure": fig_paths,
+        },
+        use_cache=use_cache,
+    )
 
 
-def run_nonlinear_supplement(ds: dict, *, seed=RANDOM_STATE):
+def run_nonlinear_supplement(
+    ds: dict,
+    *,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Supplementary nonlinear comparison (negative result).
 
     Runs linear logreg, RBF-SVM, and autoencoder-latent+logreg on two tasks:
@@ -738,6 +916,11 @@ def run_nonlinear_supplement(ds: dict, *, seed=RANDOM_STATE):
     not drive any main claim, but documents that richer model families
     do not improve over a clean linear baseline.
     """
+    ckey = f"nonlin_tw{EARLY_WINDOW[0]}-{EARLY_WINDOW[1]}_{_data_tag(ds)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     X = window_features(ds["X_tensor"], ds["t"], EARLY_WINDOW)
     y = np.asarray(ds["y_coarse"])
     sid = np.asarray(ds["stimulus_id"])
@@ -767,19 +950,33 @@ def run_nonlinear_supplement(ds: dict, *, seed=RANDOM_STATE):
     delta = pd.DataFrame(rows)
     _save_table(delta, "nonlinear_delta_vs_linear")
 
-    return {"summary": df, "delta_vs_linear": delta, "figure": fig}
+    return _pipeline_cache_store(
+        ckey,
+        {"summary": df, "delta_vs_linear": delta, "figure": fig},
+        use_cache=use_cache,
+    )
 
 
 # bellier 2023 extension sections
-def run_bellier_decoder(*, seed=RANDOM_STATE):
+def run_bellier_decoder(
+    *,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Bellier vocal-vs-instrumental decoder on the 29-patient supergrid.
 
     Runs logistic regression on ``{all, right_STG, left_STG, non_STG}``
     under blocked-time 5-fold CV. A TinyTemporalCNN is run only on
-    subsets where logreg clears chance by ``CNN_MIN_BACC_OVER_CHANCE``.
+    subsets where logreg clears chance by ``    CNN_MIN_BACC_OVER_CHANCE``.
     Saves ``bellier_decoder_summary.csv`` and ``fig8_bellier_decoder_subsets``.
     """
     sg = build_supergrid(cache=True, verbose=True)
+    ckey = f"bellier_dec_{_supergrid_tag(sg)}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = electrode_subsets(sg)
     vocal_mask = load_vocal_segments()  # raises filenotfounderror if the csv is missing
 
@@ -795,18 +992,28 @@ def run_bellier_decoder(*, seed=RANDOM_STATE):
                 fold_rows.append({"subset": subset, "model": model, **row})
     _save_table(pd.DataFrame(fold_rows), "bellier_decoder_fold_scores")
 
-    return {
-        "summary": res["summary"],
-        "fold_scores": fold_rows,
-        "cnn_ran": res["cnn_ran"],
-        "figure": fig,
-        "supergrid_n_elec": int(sg["hfa"].shape[1]),
-        "n_windows": int(res["raw"][list(res["raw"].keys())[0]]["y_true"].size)
-        if res["raw"] else 0,
-    }
+    return _pipeline_cache_store(
+        ckey,
+        {
+            "summary": res["summary"],
+            "fold_scores": fold_rows,
+            "cnn_ran": res["cnn_ran"],
+            "figure": fig,
+            "supergrid_n_elec": int(sg["hfa"].shape[1]),
+            "n_windows": int(res["raw"][list(res["raw"].keys())[0]]["y_true"].size)
+            if res["raw"] else 0,
+        },
+        use_cache=use_cache,
+    )
 
 
-def run_bellier_profiles(*, ds_norman: Optional[dict] = None, seed=RANDOM_STATE):
+def run_bellier_profiles(
+    *,
+    ds_norman: Optional[dict] = None,
+    seed=RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Event-locked temporal profiles for Bellier and a cross-dataset overlay.
 
     Bellier profiles are computed for ``right_STG`` and ``left_STG`` at
@@ -816,6 +1023,12 @@ def run_bellier_profiles(*, ds_norman: Optional[dict] = None, seed=RANDOM_STATE)
     STG vocal vs Norman song-electrode song-trial) is saved as fig10.
     """
     sg = build_supergrid(cache=True, verbose=False)
+    tag_ds = _data_tag(ds_norman) if ds_norman is not None else "default"
+    ckey = f"bellier_prof_{_supergrid_tag(sg)}_{tag_ds}_s{seed}"
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
     subs = electrode_subsets(sg)
     vocal_mask = load_vocal_segments()
 
@@ -839,14 +1052,18 @@ def run_bellier_profiles(*, ds_norman: Optional[dict] = None, seed=RANDOM_STATE)
             cache_entries[f"{src}__{key}__sem"] = np.asarray(p["sem"])
     _save_cache("temporal_profiles", **cache_entries)
 
-    return {
-        "bellier_features": b["features"],
-        "norman_features": n["features"],
-        "combined_features": feats,
-        "bellier_profiles": b["profiles"],
-        "norman_profiles": n["profiles"],
-        "figures": {"event_profiles": fig9, "overlay": fig10},
-    }
+    return _pipeline_cache_store(
+        ckey,
+        {
+            "bellier_features": b["features"],
+            "norman_features": n["features"],
+            "combined_features": feats,
+            "bellier_profiles": b["profiles"],
+            "norman_profiles": n["profiles"],
+            "figures": {"event_profiles": fig9, "overlay": fig10},
+        },
+        use_cache=use_cache,
+    )
 
 
 def bellier_build_component_tensor(supergrid,
@@ -951,14 +1168,20 @@ def bellier_fit_vocal_components(D,
     Returns:
         output dict from train_simple
     """
-    try:
-        from HaignereModel import train_simple
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError(
-            "The Bellier component model requires TensorFlow. "
-            "Use the TensorFlow-enabled kernel/environment for this function."
-        ) from exc
-    Z = train_simple(
+    # Resolve fit without ever raising NameError if an older copy of this module
+    # omitted the module-level ``train_simple`` binding (e.g. stale import path).
+    g = sys.modules[__name__].__dict__
+    fit: Any = g.get("train_simple")
+    if fit is None:
+        try:
+            from HaignereModel import train_simple as fit
+        except (ModuleNotFoundError, ImportError, OSError) as exc:
+            raise ModuleNotFoundError(
+                "The Bellier component model requires TensorFlow and HaignereModel.train_simple. "
+                "Use a TensorFlow-enabled kernel, or install/verify the HaignereModel package."
+            ) from exc
+
+    Z = fit(
         D=D,
         K=K,
         activation_penalty=activation_penalty,
@@ -1105,10 +1328,22 @@ def run_bellier_vocal_component_model(supergrid,
                                       n_iter=10000,
                                       n_iter_per_eval=20,
                                       kernel_size=None,
-                                      train_step_size=[0.01, 0.0032, 0.001, 0.0003, 0.0001]):
+                                      train_step_size=[0.01, 0.0032, 0.001, 0.0003, 0.0001],
+                                      use_cache: Optional[bool] = None,
+                                      force: bool = False):
     """Full Bellier vocal-component pipeline, in the style of the pasted repo."""
+    _ks = "none" if kernel_size is None else str(kernel_size)
+    _tss = _arr_key(np.asarray(train_step_size, dtype=np.float64))
+    ckey = (
+        f"bellier_voccomp_{_supergrid_tag(supergrid)}_v{_arr_key(vocal_present)}"
+        f"_K{K}_ap{activation_penalty}_w{window_size}_st{step_size}"
+        f"_lt{label_threshold}_mv{min_valid_frac}_np{n_perm}_s{seed}"
+        f"_as{activation_scale}_ni{n_iter}_nie{n_iter_per_eval}_ks{_ks}_tss{_tss}"
+    )
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
 
-    
     data = bellier_build_component_tensor(
         supergrid=supergrid,
         vocal_present=vocal_present,
@@ -1151,11 +1386,21 @@ def run_bellier_vocal_component_model(supergrid,
         'top_electrodes': top_electrodes,
     }
 
-    return Z    
+    return _pipeline_cache_store(ckey, Z, use_cache=use_cache)
 
 
 # top level orchestration that runs every section end to end
-def run_all(*, n_subsets=RANDOM_SUBSETS_N, n_boot=BOOTSTRAP_N, n_perm=PERM_N, seed=RANDOM_STATE, skip: Optional[list] = None, include_bellier: bool = True):
+def run_all(
+    *,
+    n_subsets=RANDOM_SUBSETS_N,
+    n_boot=BOOTSTRAP_N,
+    n_perm=PERM_N,
+    seed=RANDOM_STATE,
+    skip: Optional[list] = None,
+    include_bellier: bool = True,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Run every analysis end-to-end and write ``results/metrics.json``.
 
     Parameters
@@ -1173,6 +1418,11 @@ def run_all(*, n_subsets=RANDOM_SUBSETS_N, n_boot=BOOTSTRAP_N, n_perm=PERM_N, se
         If ``False``, the Bellier 2023 extension is skipped even when
         not listed in ``skip`` (useful when the Bellier data is not
         on disk).
+    use_cache, force
+        When ``USE_COMPUTATION_CACHE`` is on (default), pipeline sections
+        reload from ``results/cache/pipe_*.joblib`` if the key matches.
+        Pass ``use_cache=False`` to disable for this run, or ``force=True``
+        to recompute and overwrite the cache.
 
     Returns
     -------
@@ -1187,45 +1437,55 @@ def run_all(*, n_subsets=RANDOM_SUBSETS_N, n_boot=BOOTSTRAP_N, n_perm=PERM_N, se
     metrics: Dict[str, object] = {"meta": ds["meta"], "seed": seed}
 
     if "baseline" not in skip:
-        b = run_baseline_3class(ds, seed=seed)
+        b = run_baseline_3class(ds, seed=seed, use_cache=use_cache, force=force)
         metrics["baseline_3class"] = b["metrics"]
     if "random_subset" not in skip:
-        r = run_random_subset_control(ds, n_subsets=n_subsets, seed=seed)
+        r = run_random_subset_control(
+            ds, n_subsets=n_subsets, seed=seed, use_cache=use_cache, force=force
+        )
         metrics["random_subset_control"] = r["summary"].to_dict(orient="records")
     if "time_resolved" not in skip:
-        t = run_time_resolved_songmusic(ds, n_boot=200, seed=seed)
+        t = run_time_resolved_songmusic(
+            ds, n_boot=200, seed=seed, use_cache=use_cache, force=force
+        )
         metrics["time_resolved_songmusic"] = t["summary"].to_dict(orient="records")
     if "divergence" not in skip:
-        d = run_formalized_divergence(ds, n_boot=n_boot, n_perm=n_perm, seed=seed)
+        d = run_formalized_divergence(
+            ds, n_boot=n_boot, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force
+        )
         metrics["divergence_stats"] = d["summary"].to_dict(orient="records")
     if "acoustic_partition" not in skip:
         try:
-            ap = run_acoustic_partition(ds, n_perm=n_perm, seed=seed)
+            ap = run_acoustic_partition(
+                ds, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force
+            )
             metrics["acoustic_partition_summary"] = ap["summary"].to_dict(orient="records")
         except FileNotFoundError as exc:
             metrics["acoustic_partition_error"] = str(exc)
             print(f"[acoustic partition] skipped: {exc}")
     if "cross_temporal" not in skip:
-        c = run_cross_temporal(ds, seed=seed)
+        c = run_cross_temporal(ds, seed=seed, use_cache=use_cache, force=force)
         metrics["cross_temporal_summary"] = c["summary"].to_dict(orient="records")
     if "loo" not in skip:
-        l = run_loo_clean(ds, n_perm=n_perm, seed=seed)
+        l = run_loo_clean(ds, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force)
         metrics["loo_group_summary"] = l["group_summary"].to_dict(orient="records")
         metrics["loo_permutation_p"] = float(l["p_value"])
     if "nonlinear" not in skip:
-        nl = run_nonlinear_supplement(ds, seed=seed)
+        nl = run_nonlinear_supplement(ds, seed=seed, use_cache=use_cache, force=force)
         metrics["nonlinear_supplement"] = nl["summary"].to_dict(orient="records")
         metrics["nonlinear_delta_vs_linear"] = nl["delta_vs_linear"].to_dict(orient="records")
 
     if include_bellier and "bellier" not in skip:
         bellier_section: Dict[str, object] = {}
         try:
-            bd = run_bellier_decoder(seed=seed)
+            bd = run_bellier_decoder(seed=seed, use_cache=use_cache, force=force)
             bellier_section["decoder_summary"] = bd["summary"].to_dict(orient="records")
             bellier_section["decoder_fold_scores"] = bd["fold_scores"]
             bellier_section["cnn_ran"] = bd["cnn_ran"]
             bellier_section["supergrid_n_elec"] = bd["supergrid_n_elec"]
-            bp = run_bellier_profiles(ds_norman=ds, seed=seed)
+            bp = run_bellier_profiles(
+                ds_norman=ds, seed=seed, use_cache=use_cache, force=force
+            )
             bellier_section["profile_features"] = bp["combined_features"].to_dict(orient="records")
         except FileNotFoundError as exc:
             bellier_section["error"] = f"Bellier extension skipped: {exc}"
@@ -1256,6 +1516,16 @@ if __name__ == "__main__":  # pragma: no cover
     p.add_argument("--seed", type=int, default=RANDOM_STATE)
     p.add_argument("--skip", nargs="*", default=[])
     p.add_argument("--no-bellier", action="store_true", help="skip Bellier extension")
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="do not load or write results/cache/pipe_*.joblib for this run",
+    )
+    p.add_argument(
+        "--force-recompute",
+        action="store_true",
+        help="recompute and overwrite pipeline joblib cache entries",
+    )
     args = p.parse_args()
     run_all(
         n_subsets=args.n_subsets,
@@ -1264,6 +1534,8 @@ if __name__ == "__main__":  # pragma: no cover
         seed=args.seed,
         skip=args.skip,
         include_bellier=not args.no_bellier,
+        use_cache=False if args.no_cache else None,
+        force=args.force_recompute,
     )
 
 def run_bellier_matched_random_subset_control(
@@ -1273,6 +1545,8 @@ def run_bellier_matched_random_subset_control(
     subset_size: int = 7,
     seed: int = RANDOM_STATE,
     save: bool = True,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
 ):
     """Bellier matched random-subset control for vocal-vs-instrumental decoding.
 
@@ -1305,13 +1579,20 @@ def run_bellier_matched_random_subset_control(
         }
     """
     sg = build_supergrid(cache=True, verbose=False)
-    vocal_mask = load_vocal_segments()
-    rng = np.random.default_rng(seed)
-
     true_subset = np.asarray(
         bellier_component_out["top_electrodes"]["electrode_index"][:subset_size],
         dtype=int,
     )
+    ckey = (
+        f"bellier_mrs_{_supergrid_tag(sg)}_ts{_arr_key(true_subset)}_"
+        f"n{n_subsets}_k{subset_size}_s{seed}"
+    )
+    hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
+    if hit is not _CACHE_MISS:
+        return hit
+
+    vocal_mask = load_vocal_segments()
+    rng = np.random.default_rng(seed)
 
     all_idx = np.arange(sg["hfa"].shape[1], dtype=int)
     pool_idx = np.setdiff1d(all_idx, true_subset)
@@ -1379,11 +1660,47 @@ def run_bellier_matched_random_subset_control(
             subset_indices=np.array(subset_indices, dtype=int),
         )
 
+    return _pipeline_cache_store(
+        ckey,
+        {
+            "summary": summary,
+            "null_scores": null_scores,
+            "true_score": true_score,
+            "empirical_p_greater": float(empirical_p_greater),
+            "subset_indices": subset_indices,
+            "true_subset": true_subset,
+        },
+        use_cache=use_cache,
+    )
+
+
+def run_bellier_top7_vs_random_avg(
+    bellier_component_out: dict,
+    *,
+    n_random: int = 1000,
+    subset_size: int = 7,
+    seed: int = RANDOM_STATE,
+    save: bool = True,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
+    """Notebook / assignment alias for :func:`run_bellier_matched_random_subset_control`.
+
+    Compares the top component-loading electrodes to a null of ``n_random`` random
+    same-size subsets. Exposes ``top_bacc`` and ``random_bacc`` for plotting in
+    ``project_part2.ipynb`` (same meaning as ``true_score`` and ``null_scores``).
+    """
+    out = run_bellier_matched_random_subset_control(
+        bellier_component_out,
+        n_subsets=n_random,
+        subset_size=subset_size,
+        seed=seed,
+        save=save,
+        use_cache=use_cache,
+        force=force,
+    )
     return {
-        "summary": summary,
-        "null_scores": null_scores,
-        "true_score": true_score,
-        "empirical_p_greater": float(empirical_p_greater),
-        "subset_indices": subset_indices,
-        "true_subset": true_subset,
+        **out,
+        "top_bacc": out["true_score"],
+        "random_bacc": out["null_scores"],
     }
