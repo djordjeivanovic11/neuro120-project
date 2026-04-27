@@ -1,0 +1,5 @@
+task,model,delta_bacc_vs_linear
+song_vs_music_all_electrodes,autoencoder_latent_logreg,0.0
+song_vs_music_all_electrodes,rbf_svm,0.0
+three_class_all_electrodes,autoencoder_latent_logreg,-0.046176046176046204
+three_class_all_electrodes,rbf_svm,0.0

@@ -26,6 +26,7 @@ Design notes
 * Running ``python pipeline.py`` from a fresh checkout and a populated
   ``data/`` directory re-creates every numeric claim in the paper.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -85,6 +86,9 @@ from plots import (
     plot_cross_temporal_heatmaps,
     plot_divergence_partial_comparison,
     plot_divergence_with_stats,
+    plot_figure1_composite,
+    plot_figure2_composite,
+    plot_figure3_composite,
     plot_loo_contributions,
     plot_nonlinear_comparison,
     plot_random_subset_null,
@@ -126,7 +130,9 @@ def _use_cache_flag(local: Optional[bool]) -> bool:
     return USE_COMPUTATION_CACHE if local is None else local
 
 
-def _pipeline_cache_try_load(key: str, *, use_cache: Optional[bool], force: bool) -> Any:
+def _pipeline_cache_try_load(
+    key: str, *, use_cache: Optional[bool], force: bool
+) -> Any:
     if force or not _use_cache_flag(use_cache):
         return _CACHE_MISS
     name = f"pipe_{key}"
@@ -189,7 +195,9 @@ def run_baseline_3class(
         return hit
 
     X = window_features(ds["X_tensor"], ds["t"], time_window)
-    res = run_grouped_cv(X, ds["y_coarse"], ds["stimulus_id"], n_splits=N_SPLITS, seed=seed)
+    res = run_grouped_cv(
+        X, ds["y_coarse"], ds["stimulus_id"], n_splits=N_SPLITS, seed=seed
+    )
     m = res["metrics"]
     cm_norm = np.asarray(m["confusion_matrix_normalized"])
     fig_paths = plot_confusion_matrix(
@@ -256,8 +264,16 @@ def run_random_subset_control(
     rows: List[dict] = []
 
     for metric, xlabel, title in [
-        ("bacc", "song vs. music balanced accuracy", "Matched random-subset control: balanced accuracy"),
-        ("divergence", "song vs. music divergence", "Matched random-subset control: RDM divergence"),
+        (
+            "bacc",
+            "song vs. music balanced accuracy",
+            "Matched random-subset control: balanced accuracy",
+        ),
+        (
+            "divergence",
+            "song vs. music divergence",
+            "Matched random-subset control: RDM divergence",
+        ),
     ]:
         res = compare_true_vs_random_subsets(
             ds["X_tensor"],
@@ -283,7 +299,10 @@ def run_random_subset_control(
             title=title,
             xlabel=xlabel,
             stem=f"fig4_random_subset_null_{metric}",
-            extra_lines={"all": res["reference_scores"]["all"], "no_song": res["reference_scores"]["no_song"]},
+            extra_lines={
+                "all": res["reference_scores"]["all"],
+                "no_song": res["reference_scores"]["no_song"],
+            },
         )
 
         _save_cache(
@@ -346,9 +365,7 @@ def run_time_resolved_songmusic(
     and AUC together with a per-window bootstrap CI computed on
     held-out predictions (so the CI does not leak across CV folds).
     """
-    ckey = (
-        f"time_sm_nb{n_boot}_w{WINDOW_SEC}_st{STEP_SEC}_{_data_tag(ds)}_s{seed}"
-    )
+    ckey = f"time_sm_nb{n_boot}_w{WINDOW_SEC}_st{STEP_SEC}_{_data_tag(ds)}_s{seed}"
     hit = _pipeline_cache_try_load(ckey, use_cache=use_cache, force=force)
     if hit is not _CACHE_MISS:
         return hit
@@ -370,11 +387,16 @@ def run_time_resolved_songmusic(
             seed=seed,
         )
         curves[name] = out
-        _save_cache(f"time_songmusic_{name}", **{k: np.asarray(v) for k, v in out.items() if k != "y_pred_per_window"})
+        _save_cache(
+            f"time_songmusic_{name}",
+            **{k: np.asarray(v) for k, v in out.items() if k != "y_pred_per_window"},
+        )
 
         early_mask = (out["time"] >= EARLY_WINDOW[0]) & (out["time"] <= EARLY_WINDOW[1])
         full_mean = float(np.mean(out["bacc"]))
-        early_mean = float(np.mean(out["bacc"][early_mask])) if early_mask.any() else np.nan
+        early_mean = (
+            float(np.mean(out["bacc"][early_mask])) if early_mask.any() else np.nan
+        )
         peak_i = int(np.argmax(out["bacc"]))
         rows.append(
             {
@@ -391,7 +413,15 @@ def run_time_resolved_songmusic(
     _save_table(summary, "time_resolved_songmusic_summary")
 
     fig_paths = plot_time_resolved_curves(
-        curves={k: {"time": v["time"], "bacc": v["bacc"], "bacc_ci_lo": v["bacc_ci_lo"], "bacc_ci_hi": v["bacc_ci_hi"]} for k, v in curves.items()},
+        curves={
+            k: {
+                "time": v["time"],
+                "bacc": v["bacc"],
+                "bacc_ci_lo": v["bacc_ci_lo"],
+                "bacc_ci_hi": v["bacc_ci_hi"],
+            }
+            for k, v in curves.items()
+        },
         metric_key="bacc",
         chance=0.5,
         title="Song vs music time-resolved decoder",
@@ -483,8 +513,14 @@ def run_formalized_divergence(
             perm_p_per_window=perm["p_per_window"],
         )
 
-        early_mask = (observed["time"] >= EARLY_WINDOW[0]) & (observed["time"] <= EARLY_WINDOW[1])
-        early_mean_obs = float(np.mean(observed["divergence"][early_mask])) if early_mask.any() else np.nan
+        early_mask = (observed["time"] >= EARLY_WINDOW[0]) & (
+            observed["time"] <= EARLY_WINDOW[1]
+        )
+        early_mean_obs = (
+            float(np.mean(observed["divergence"][early_mask]))
+            if early_mask.any()
+            else np.nan
+        )
         peak_i = int(np.nanargmax(observed["divergence"]))
         rows.append(
             {
@@ -579,7 +615,9 @@ def run_acoustic_partition(
     subs = define_fixed_subsets(ds["electrode_group"])
     acoustic = load_acoustic_features(stim_names_target=ds["stimulus_id"])
     if feature_set not in acoustic:
-        raise ValueError(f"feature_set must be one of F_coch, F_mod_resid, A_full; got {feature_set}")
+        raise ValueError(
+            f"feature_set must be one of F_coch, F_mod_resid, A_full; got {feature_set}"
+        )
     A = acoustic[feature_set]
     print(
         f"  [acoustic partition] regressor '{feature_set}' "
@@ -594,31 +632,57 @@ def run_acoustic_partition(
         sub = ds["X_tensor"][subs[name]]
 
         raw = time_resolved_divergence(
-            sub, ds["y_coarse"], ds["t"], pair=("song", "music"),
-            window_sec=WINDOW_SEC, step_sec=STEP_SEC,
+            sub,
+            ds["y_coarse"],
+            ds["t"],
+            pair=("song", "music"),
+            window_sec=WINDOW_SEC,
+            step_sec=STEP_SEC,
         )
         raw_perm = permutation_test_divergence_curve(
-            sub, ds["y_coarse"], ds["t"], pair=("song", "music"),
-            window_sec=WINDOW_SEC, step_sec=STEP_SEC,
-            n_perm=n_perm, seed=seed,
+            sub,
+            ds["y_coarse"],
+            ds["t"],
+            pair=("song", "music"),
+            window_sec=WINDOW_SEC,
+            step_sec=STEP_SEC,
+            n_perm=n_perm,
+            seed=seed,
         )
         partial = time_resolved_divergence(
-            sub, ds["y_coarse"], ds["t"], A=A,
-            pair=("song", "music"), window_sec=WINDOW_SEC, step_sec=STEP_SEC,
+            sub,
+            ds["y_coarse"],
+            ds["t"],
+            A=A,
+            pair=("song", "music"),
+            window_sec=WINDOW_SEC,
+            step_sec=STEP_SEC,
             ridge=ridge,
         )
         partial_perm = permutation_test_divergence_curve(
-            sub, ds["y_coarse"], ds["t"], A=A,
-            pair=("song", "music"), window_sec=WINDOW_SEC, step_sec=STEP_SEC,
-            n_perm=n_perm, ridge=ridge, seed=seed,
+            sub,
+            ds["y_coarse"],
+            ds["t"],
+            A=A,
+            pair=("song", "music"),
+            window_sec=WINDOW_SEC,
+            step_sec=STEP_SEC,
+            n_perm=n_perm,
+            ridge=ridge,
+            seed=seed,
         )
 
         curves_per_subset[name] = {
-            "raw": raw, "raw_perm": raw_perm,
-            "partial": partial, "partial_perm": partial_perm,
+            "raw": raw,
+            "raw_perm": raw_perm,
+            "partial": partial,
+            "partial_perm": partial_perm,
         }
         figs[name] = plot_divergence_partial_comparison(
-            raw, partial, raw_perm, partial_perm,
+            raw,
+            partial,
+            raw_perm,
+            partial_perm,
             title=f"Acoustic-partialled divergence - {name}",
             stem=f"fig_acoustic_partition_{name}",
         )
@@ -644,12 +708,18 @@ def run_acoustic_partition(
                 "peak_time_raw_s": float(raw["time"][peak_i_raw]),
                 "peak_time_partial_s": float(partial["time"][peak_i_par]),
                 "early_mean_raw": float(np.mean(raw["divergence"][early_mask]))
-                if early_mask.any() else float("nan"),
+                if early_mask.any()
+                else float("nan"),
                 "early_mean_partial": float(np.mean(partial["divergence"][early_mask]))
-                if early_mask.any() else float("nan"),
+                if early_mask.any()
+                else float("nan"),
                 "fraction_surviving_at_peak": (
-                    float(partial["divergence"][peak_i_raw] / raw["divergence"][peak_i_raw])
-                    if raw["divergence"][peak_i_raw] > 0 else float("nan")
+                    float(
+                        partial["divergence"][peak_i_raw]
+                        / raw["divergence"][peak_i_raw]
+                    )
+                    if raw["divergence"][peak_i_raw] > 0
+                    else float("nan")
                 ),
                 "p_peak_raw": float(raw_perm["p_peak"]),
                 "p_peak_partial": float(partial_perm["p_peak"]),
@@ -834,7 +904,7 @@ def run_loo_clean(
 
     # permutation test comparing mean delta_bacc for song electrodes versus others
     rng = np.random.default_rng(seed)
-    song_mask = (eg == "song")
+    song_mask = eg == "song"
     observed_song = df.loc[song_mask, "delta_bacc"].mean()
     observed_other = df.loc[~song_mask, "delta_bacc"].mean()
     observed_stat = observed_song - observed_other
@@ -843,22 +913,26 @@ def run_loo_clean(
     for r in range(n_perm):
         shuffled = eg.copy()
         rng.shuffle(shuffled)
-        sm = (shuffled == "song")
-        null_stats[r] = df.loc[sm, "delta_bacc"].mean() - df.loc[~sm, "delta_bacc"].mean()
+        sm = shuffled == "song"
+        null_stats[r] = (
+            df.loc[sm, "delta_bacc"].mean() - df.loc[~sm, "delta_bacc"].mean()
+        )
     p_value = empirical_p_value(observed_stat, null_stats, alternative="greater")
 
-    _save_cache("loo_contributions", **{col: df[col].to_numpy() for col in df.columns if df[col].dtype != object})
-    _save_cache("loo_perm_null", null_stats=null_stats, observed_stat=np.array([observed_stat]))
+    _save_cache(
+        "loo_contributions",
+        **{col: df[col].to_numpy() for col in df.columns if df[col].dtype != object},
+    )
+    _save_cache(
+        "loo_perm_null", null_stats=null_stats, observed_stat=np.array([observed_stat])
+    )
     _save_table(df, "loo_contributions")
 
-    group_summary = (
-        df.groupby("electrode_group", as_index=False)
-        .agg(
-            mean_delta_bacc=("delta_bacc", "mean"),
-            std_delta_bacc=("delta_bacc", "std"),
-            mean_delta_divergence=("delta_divergence", "mean"),
-            n=("delta_bacc", "size"),
-        )
+    group_summary = df.groupby("electrode_group", as_index=False).agg(
+        mean_delta_bacc=("delta_bacc", "mean"),
+        std_delta_bacc=("delta_bacc", "std"),
+        mean_delta_divergence=("delta_divergence", "mean"),
+        n=("delta_bacc", "size"),
     )
     group_summary["perm_p_song_vs_rest_bacc"] = p_value
     _save_table(group_summary, "loo_group_summary")
@@ -942,11 +1016,13 @@ def run_nonlinear_supplement(
         for _, row in sub.iterrows():
             if row["model"] == "linear_logreg":
                 continue
-            rows.append({
-                "task": task,
-                "model": row["model"],
-                "delta_bacc_vs_linear": float(row["bacc"]) - lin,
-            })
+            rows.append(
+                {
+                    "task": task,
+                    "model": row["model"],
+                    "delta_bacc_vs_linear": float(row["bacc"]) - lin,
+                }
+            )
     delta = pd.DataFrame(rows)
     _save_table(delta, "nonlinear_delta_vs_linear")
 
@@ -1001,7 +1077,8 @@ def run_bellier_decoder(
             "figure": fig,
             "supergrid_n_elec": int(sg["hfa"].shape[1]),
             "n_windows": int(res["raw"][list(res["raw"].keys())[0]]["y_true"].size)
-            if res["raw"] else 0,
+            if res["raw"]
+            else 0,
         },
         use_cache=use_cache,
     )
@@ -1066,12 +1143,14 @@ def run_bellier_profiles(
     )
 
 
-def bellier_build_component_tensor(supergrid,
-                                   vocal_present,
-                                   window_size,
-                                   step_size=None,
-                                   label_threshold=0.5,
-                                   min_valid_frac=0.8):
+def bellier_build_component_tensor(
+    supergrid,
+    vocal_present,
+    window_size,
+    step_size=None,
+    label_threshold=0.5,
+    min_valid_frac=0.8,
+):
     """Build Bellier tensor D for component modeling.
 
     Args:
@@ -1095,8 +1174,8 @@ def bellier_build_component_tensor(supergrid,
     if step_size is None:
         step_size = window_size
 
-    X = np.asarray(supergrid['hfa'], dtype=np.float32)
-    artifacts = np.asarray(supergrid['artifacts'], dtype=bool)
+    X = np.asarray(supergrid["hfa"], dtype=np.float32)
+    artifacts = np.asarray(supergrid["artifacts"], dtype=bool)
     vocal_present = np.asarray(vocal_present).astype(np.float32)
 
     n_time, n_elec = X.shape
@@ -1131,32 +1210,34 @@ def bellier_build_component_tensor(supergrid,
         valid_mask.append(vmask[np.newaxis, :])
         keep_windows.append(s)
 
-    D = np.concatenate(D, axis=0)                  # [window x time x electrode]
-    y = np.asarray(y, dtype=np.int32)              # [window]
+    D = np.concatenate(D, axis=0)  # [window x time x electrode]
+    y = np.asarray(y, dtype=np.int32)  # [window]
     valid_mask = np.concatenate(valid_mask, axis=0)  # [window x electrode]
     keep_windows = np.asarray(keep_windows, dtype=np.int32)
 
     Z = {
-        'D': D,
-        'y': y,
-        'valid_mask': valid_mask,
-        'keep_windows': keep_windows,
-        'window_size': window_size,
-        'step_size': step_size,
+        "D": D,
+        "y": y,
+        "valid_mask": valid_mask,
+        "keep_windows": keep_windows,
+        "window_size": window_size,
+        "step_size": step_size,
     }
 
     return Z
 
 
-def bellier_fit_vocal_components(D,
-                                 K,
-                                 activation_penalty,
-                                 activation_scale=0.001,
-                                 n_iter=10000,
-                                 n_iter_per_eval=20,
-                                 seed=0,
-                                 kernel_size=None,
-                                 step_size=[0.01, 0.0032, 0.001, 0.0003, 0.0001]):
+def bellier_fit_vocal_components(
+    D,
+    K,
+    activation_penalty,
+    activation_scale=0.001,
+    n_iter=10000,
+    n_iter_per_eval=20,
+    seed=0,
+    kernel_size=None,
+    step_size=[0.01, 0.0032, 0.001, 0.0003, 0.0001],
+):
     """Fit the simple Norman-Haignere component model to Bellier windows.
 
     Args:
@@ -1196,10 +1277,7 @@ def bellier_fit_vocal_components(D,
     return Z
 
 
-def bellier_component_vocal_selectivity(model_fit,
-                                        y,
-                                        n_perm=1000,
-                                        seed=0):
+def bellier_component_vocal_selectivity(model_fit, y, n_perm=1000, seed=0):
     """Measure vocal preference of fitted components.
 
     Args:
@@ -1212,18 +1290,18 @@ def bellier_component_vocal_selectivity(model_fit,
 
     rng = np.random.RandomState(seed)
 
-    R = model_fit['R']   # [window x time x component]
+    R = model_fit["R"]  # [window x time x component]
     K = R.shape[2]
 
-    comp_mean = np.mean(R, axis=1)   # [window x component]
+    comp_mean = np.mean(R, axis=1)  # [window x component]
 
     mean_vocal = np.zeros(K)
     mean_instr = np.zeros(K)
     diff = np.zeros(K)
     p = np.zeros(K)
 
-    vocal_ix = (y == 1)
-    instr_ix = (y == 0)
+    vocal_ix = y == 1
+    instr_ix = y == 0
 
     for k in range(K):
         x = comp_mean[:, k]
@@ -1242,21 +1320,19 @@ def bellier_component_vocal_selectivity(model_fit,
     order = np.argsort(-diff)
 
     Z = {
-        'mean_vocal': mean_vocal,
-        'mean_instr': mean_instr,
-        'diff': diff,
-        'p': p,
-        'order': order,
-        'best_component': order[0],
-        'component_mean_timecourse': np.mean(R, axis=0),  # [time x component]
+        "mean_vocal": mean_vocal,
+        "mean_instr": mean_instr,
+        "diff": diff,
+        "p": p,
+        "order": order,
+        "best_component": order[0],
+        "component_mean_timecourse": np.mean(R, axis=0),  # [time x component]
     }
 
     return Z
 
 
-def bellier_electrode_weights_for_component(model_fit,
-                                            component_index,
-                                            supergrid=None):
+def bellier_electrode_weights_for_component(model_fit, component_index, supergrid=None):
     """Return electrode weights for one selected component.
 
     Args:
@@ -1268,69 +1344,75 @@ def bellier_electrode_weights_for_component(model_fit,
         dict with electrode weights and optional metadata
     """
 
-    W = model_fit['W']   # [component x electrode]
+    W = model_fit["W"]  # [component x electrode]
     w = W[component_index, :]
 
     order = np.argsort(-w)
 
     Z = {
-        'weights': w,
-        'order': order,
-        'component_index': component_index,
+        "weights": w,
+        "order": order,
+        "component_index": component_index,
     }
 
     if supergrid is not None:
-        for key in ['patient_id', 'channel_label', 'group', 'hemi', 'anatomy_raw', 'mni']:
+        for key in [
+            "patient_id",
+            "channel_label",
+            "group",
+            "hemi",
+            "anatomy_raw",
+            "mni",
+        ]:
             if key in supergrid:
                 Z[key] = supergrid[key]
 
     return Z
 
 
-def bellier_top_vocal_electrodes(model_fit,
-                                 component_stats,
-                                 supergrid=None,
-                                 top_n=25):
+def bellier_top_vocal_electrodes(model_fit, component_stats, supergrid=None, top_n=25):
     """Get the top electrodes for the most vocal-preferring component."""
 
-    k = component_stats['best_component']
+    k = component_stats["best_component"]
     ew = bellier_electrode_weights_for_component(model_fit, k, supergrid=supergrid)
 
-    order = ew['order'][:top_n]
+    order = ew["order"][:top_n]
 
     Z = {
-        'component_index': k,
-        'component_diff': component_stats['diff'][k],
-        'component_p': component_stats['p'][k],
-        'electrode_index': order,
-        'weights': ew['weights'][order],
+        "component_index": k,
+        "component_diff": component_stats["diff"][k],
+        "component_p": component_stats["p"][k],
+        "electrode_index": order,
+        "weights": ew["weights"][order],
     }
 
     if supergrid is not None:
-        for key in ['patient_id', 'channel_label', 'group', 'hemi', 'anatomy_raw']:
+        for key in ["patient_id", "channel_label", "group", "hemi", "anatomy_raw"]:
             if key in ew:
                 Z[key] = np.asarray(ew[key])[order]
 
     return Z
 
 
-def run_bellier_vocal_component_model(supergrid,
-                                      vocal_present,
-                                      K=10,
-                                      activation_penalty=0.01,
-                                      window_size=50,
-                                      step_size=50,
-                                      label_threshold=0.5,
-                                      min_valid_frac=0.8,
-                                      n_perm=1000,
-                                      seed=0,
-                                      activation_scale=0.001,
-                                      n_iter=10000,
-                                      n_iter_per_eval=20,
-                                      kernel_size=None,
-                                      train_step_size=[0.01, 0.0032, 0.001, 0.0003, 0.0001],
-                                      use_cache: Optional[bool] = None,
-                                      force: bool = False):
+def run_bellier_vocal_component_model(
+    supergrid,
+    vocal_present,
+    K=10,
+    activation_penalty=0.01,
+    window_size=50,
+    step_size=50,
+    label_threshold=0.5,
+    min_valid_frac=0.8,
+    n_perm=1000,
+    seed=0,
+    activation_scale=0.001,
+    n_iter=10000,
+    n_iter_per_eval=20,
+    kernel_size=None,
+    train_step_size=[0.01, 0.0032, 0.001, 0.0003, 0.0001],
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+):
     """Full Bellier vocal-component pipeline, in the style of the pasted repo."""
     _ks = "none" if kernel_size is None else str(kernel_size)
     _tss = _arr_key(np.asarray(train_step_size, dtype=np.float64))
@@ -1354,7 +1436,7 @@ def run_bellier_vocal_component_model(supergrid,
     )
 
     model_fit = bellier_fit_vocal_components(
-        D=data['D'],
+        D=data["D"],
         K=K,
         activation_penalty=activation_penalty,
         activation_scale=activation_scale,
@@ -1367,7 +1449,7 @@ def run_bellier_vocal_component_model(supergrid,
 
     component_stats = bellier_component_vocal_selectivity(
         model_fit=model_fit,
-        y=data['y'],
+        y=data["y"],
         n_perm=n_perm,
         seed=seed,
     )
@@ -1380,13 +1462,122 @@ def run_bellier_vocal_component_model(supergrid,
     )
 
     Z = {
-        'data': data,
-        'model_fit': model_fit,
-        'component_stats': component_stats,
-        'top_electrodes': top_electrodes,
+        "data": data,
+        "model_fit": model_fit,
+        "component_stats": component_stats,
+        "top_electrodes": top_electrodes,
     }
 
     return _pipeline_cache_store(ckey, Z, use_cache=use_cache)
+
+
+def run_figure_composites(
+    ds: dict,
+    *,
+    seed: int = RANDOM_STATE,
+    use_cache: Optional[bool] = None,
+    force: bool = False,
+    include_bellier: bool = True,
+) -> Dict[str, object]:
+    """Build multi-panel Figures 1--3 for the write-up (Georgia-style layout).
+
+    Depends on the same ``run_*`` sections as the main paper; each call
+    hits the pipeline cache when available.
+    """
+    ensure_dirs()
+    out: Dict[str, object] = {}
+
+    b = run_baseline_3class(ds, seed=seed, use_cache=use_cache, force=force)
+    r = run_random_subset_control(ds, seed=seed, use_cache=use_cache, force=force)
+    t = run_time_resolved_songmusic(
+        ds, n_boot=200, seed=seed, use_cache=use_cache, force=force
+    )
+    d = run_formalized_divergence(
+        ds,
+        n_boot=BOOTSTRAP_N,
+        n_perm=PERM_N,
+        seed=seed,
+        use_cache=use_cache,
+        force=force,
+    )
+    m = b["metrics"]
+    cm_norm = np.asarray(m["confusion_matrix_normalized"])
+    class_names = m["class_names"]
+    div_combined = {}
+    for name, pack in d["curves"].items():
+        obs = pack["observed"]
+        boot = pack["boot"]
+        div_combined[name] = {
+            "time": obs["time"],
+            "divergence": obs["divergence"],
+            "divergence_ci_lo": boot["ci_lo"],
+            "divergence_ci_hi": boot["ci_hi"],
+        }
+    out["figure1"] = plot_figure1_composite(
+        cm_norm,
+        class_names,
+        t["curves"],
+        div_combined,
+        r["by_metric"]["bacc"],
+        r["by_metric"]["divergence"],
+    )
+
+    try:
+        ap = run_acoustic_partition(
+            ds, n_perm=PERM_N, seed=seed, use_cache=use_cache, force=force
+        )
+        c = run_cross_temporal(ds, seed=seed, use_cache=use_cache, force=force)
+        l = run_loo_clean(
+            ds, n_perm=PERM_N, seed=seed, use_cache=use_cache, force=force
+        )
+        df = l["df"]
+        observed_song = float(
+            df.loc[df["electrode_group"] == "song", "delta_bacc"].mean()
+        )
+        observed_other = float(
+            df.loc[df["electrode_group"] != "song", "delta_bacc"].mean()
+        )
+        p_text = (
+            f"mean song Δ = {observed_song:.3f}\n"
+            f"mean non-song Δ = {observed_other:.3f}\n"
+            f"permutation p (song > rest) = {float(l['p_value']):.4f}"
+        )
+        ct_results = c["results"]
+        vmin = float(
+            min(np.nanpercentile(ct_results[n]["matrix"], 5) for n in ct_results)
+        )
+        vmax = float(
+            max(np.nanpercentile(ct_results[n]["matrix"], 95) for n in ct_results)
+        )
+        out["figure2"] = plot_figure2_composite(
+            ap["curves"],
+            {name: ct_results[name]["matrix"] for name in ct_results},
+            ct_results[next(iter(ct_results))]["times"],
+            vmin,
+            vmax,
+            df,
+            p_text,
+        )
+    except FileNotFoundError as exc:
+        out["figure2_error"] = str(exc)
+        print(f"[figure composites] figure2 skipped: {exc}")
+
+    if include_bellier:
+        try:
+            bd = run_bellier_decoder(seed=seed, use_cache=use_cache, force=force)
+            bp = run_bellier_profiles(
+                ds_norman=ds, seed=seed, use_cache=use_cache, force=force
+            )
+            out["figure3"] = plot_figure3_composite(
+                bp["bellier_profiles"],
+                bp["norman_profiles"],
+                bd["summary"],
+            )
+        except FileNotFoundError as exc:
+            out["figure3_error"] = str(exc)
+            print(f"[figure composites] figure3 skipped: {exc}")
+
+    return out
 
 
 # top level orchestration that runs every section end to end
@@ -1451,7 +1642,12 @@ def run_all(
         metrics["time_resolved_songmusic"] = t["summary"].to_dict(orient="records")
     if "divergence" not in skip:
         d = run_formalized_divergence(
-            ds, n_boot=n_boot, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force
+            ds,
+            n_boot=n_boot,
+            n_perm=n_perm,
+            seed=seed,
+            use_cache=use_cache,
+            force=force,
         )
         metrics["divergence_stats"] = d["summary"].to_dict(orient="records")
     if "acoustic_partition" not in skip:
@@ -1459,7 +1655,9 @@ def run_all(
             ap = run_acoustic_partition(
                 ds, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force
             )
-            metrics["acoustic_partition_summary"] = ap["summary"].to_dict(orient="records")
+            metrics["acoustic_partition_summary"] = ap["summary"].to_dict(
+                orient="records"
+            )
         except FileNotFoundError as exc:
             metrics["acoustic_partition_error"] = str(exc)
             print(f"[acoustic partition] skipped: {exc}")
@@ -1467,13 +1665,17 @@ def run_all(
         c = run_cross_temporal(ds, seed=seed, use_cache=use_cache, force=force)
         metrics["cross_temporal_summary"] = c["summary"].to_dict(orient="records")
     if "loo" not in skip:
-        l = run_loo_clean(ds, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force)
+        l = run_loo_clean(
+            ds, n_perm=n_perm, seed=seed, use_cache=use_cache, force=force
+        )
         metrics["loo_group_summary"] = l["group_summary"].to_dict(orient="records")
         metrics["loo_permutation_p"] = float(l["p_value"])
     if "nonlinear" not in skip:
         nl = run_nonlinear_supplement(ds, seed=seed, use_cache=use_cache, force=force)
         metrics["nonlinear_supplement"] = nl["summary"].to_dict(orient="records")
-        metrics["nonlinear_delta_vs_linear"] = nl["delta_vs_linear"].to_dict(orient="records")
+        metrics["nonlinear_delta_vs_linear"] = nl["delta_vs_linear"].to_dict(
+            orient="records"
+        )
 
     if include_bellier and "bellier" not in skip:
         bellier_section: Dict[str, object] = {}
@@ -1486,11 +1688,29 @@ def run_all(
             bp = run_bellier_profiles(
                 ds_norman=ds, seed=seed, use_cache=use_cache, force=force
             )
-            bellier_section["profile_features"] = bp["combined_features"].to_dict(orient="records")
+            bellier_section["profile_features"] = bp["combined_features"].to_dict(
+                orient="records"
+            )
         except FileNotFoundError as exc:
             bellier_section["error"] = f"Bellier extension skipped: {exc}"
             print(f"[bellier] skipped: {exc}")
         metrics["bellier"] = bellier_section
+
+    if "composites" not in skip:
+        fc = run_figure_composites(
+            ds,
+            seed=seed,
+            use_cache=use_cache,
+            force=force,
+            include_bellier=include_bellier,
+        )
+        comp_summary: Dict[str, object] = {}
+        for k, v in fc.items():
+            if isinstance(v, dict) and "pdf" in v:
+                comp_summary[k] = {kk: str(vv) for kk, vv in v.items()}
+            else:
+                comp_summary[k] = v
+        metrics["figure_composites"] = comp_summary
 
     path = RESULTS_DIR / "metrics.json"
     with open(path, "w") as f:
@@ -1537,6 +1757,7 @@ if __name__ == "__main__":  # pragma: no cover
         use_cache=False if args.no_cache else None,
         force=args.force_recompute,
     )
+
 
 def run_bellier_matched_random_subset_control(
     bellier_component_out: dict,
@@ -1606,9 +1827,7 @@ def run_bellier_matched_random_subset_control(
         seed=seed,
     )
     true_score = float(
-        true_res["summary"]
-        .query("model == 'logreg'")["mean_bacc"]
-        .iloc[0]
+        true_res["summary"].query("model == 'logreg'")["mean_bacc"].iloc[0]
     )
 
     # --- build null distribution over matched random subsets ---
@@ -1630,24 +1849,24 @@ def run_bellier_matched_random_subset_control(
             seed=seed,
         )
         null_scores[i] = float(
-            res["summary"]
-            .query("model == 'logreg'")["mean_bacc"]
-            .iloc[0]
+            res["summary"].query("model == 'logreg'")["mean_bacc"].iloc[0]
         )
 
     empirical_p_greater = (1 + np.sum(null_scores >= true_score)) / (n_subsets + 1)
 
     summary = pd.DataFrame(
-        [{
-            "task": "bellier_vocal_vs_instrumental",
-            "subset_size": subset_size,
-            "n_random_subsets": n_subsets,
-            "true_score": true_score,
-            "null_mean": float(np.mean(null_scores)),
-            "null_std": float(np.std(null_scores)),
-            "null_median": float(np.median(null_scores)),
-            "empirical_p_greater": float(empirical_p_greater),
-        }]
+        [
+            {
+                "task": "bellier_vocal_vs_instrumental",
+                "subset_size": subset_size,
+                "n_random_subsets": n_subsets,
+                "true_score": true_score,
+                "null_mean": float(np.mean(null_scores)),
+                "null_std": float(np.std(null_scores)),
+                "null_median": float(np.median(null_scores)),
+                "empirical_p_greater": float(empirical_p_greater),
+            }
+        ]
     )
 
     if save:

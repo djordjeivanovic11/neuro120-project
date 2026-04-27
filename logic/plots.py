@@ -734,7 +734,7 @@ def _render_cross_temporal_panels(
     if im is None:  # pragma: no cover
         raise ValueError("matrices is empty")
     axes_list[0].set_ylabel("train time (s)", fontsize=PAPER_FONTS["label"], labelpad=6)
-    cb = im.figure.colorbar(im, cax=cax)
+    cb = cax.figure.colorbar(im, cax=cax)
     cb.set_label("balanced accuracy", fontsize=PAPER_FONTS["label"], labelpad=8)
     cb.ax.tick_params(labelsize=PAPER_FONTS["tick"] - 1)
 
@@ -1248,6 +1248,643 @@ def plot_temporal_profile_overlay(
     )
     _legend_paper(ax)
     plt.tight_layout()
+    paths = _save(fig, stem)
+    plt.close(fig)
+    return paths
+
+
+# --- Multi-panel paper figures (Georgia-style composites) -----------------
+
+
+def _confusion_matrix_on_ax(
+    ax: plt.Axes,
+    cm_norm: np.ndarray,
+    class_names: Sequence[str],
+    *,
+    title: str,
+    fontsize: int = 10,
+) -> None:
+    im = ax.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
+    ax.set_xticks(range(len(class_names)))
+    ax.set_yticks(range(len(class_names)))
+    ax.set_xticklabels(class_names, fontsize=fontsize)
+    ax.set_yticklabels(class_names, fontsize=fontsize)
+    ax.set_xlabel("predicted", fontsize=fontsize)
+    ax.set_ylabel("true", fontsize=fontsize)
+    for i in range(cm_norm.shape[0]):
+        for j in range(cm_norm.shape[1]):
+            ax.text(
+                j,
+                i,
+                f"{cm_norm[i, j]:.2f}",
+                ha="center",
+                va="center",
+                color="white" if cm_norm[i, j] > 0.5 else "black",
+                fontsize=fontsize - 1,
+            )
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 1, pad=6)
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+
+def _random_subset_hist_compact_on_ax(
+    ax: plt.Axes,
+    null_scores: np.ndarray,
+    true_score: float,
+    p_value: float,
+    title: str,
+    xlabel: str,
+    extra_lines: Optional[Dict[str, float]] = None,
+    *,
+    n_hist_bins: int = 28,
+) -> None:
+    ns = np.asarray(null_scores, dtype=float).ravel()
+    n_bins_max = int(min(max(10, n_hist_bins), 40))
+    bin_edges = np.histogram_bin_edges(ns, bins="auto")
+    if bin_edges.size - 1 > n_bins_max:
+        bin_edges = np.histogram_bin_edges(ns, bins=n_bins_max)
+    ax.hist(
+        ns,
+        bins=bin_edges,
+        color=HIST_BAR_COLOR,
+        edgecolor="#7D8695",
+        linewidth=0.6,
+        rwidth=0.9,
+        alpha=0.9,
+    )
+    ymax = float(ax.get_ylim()[1]) or 1.0
+    ax.set_ylim(0, ymax * 1.05)
+    c_song = SUBSET_COLORS["song_only"]
+    ax.axvline(true_score, color=c_song, linewidth=2.2, zorder=4, label="song-only")
+    if extra_lines:
+        for name, val in extra_lines.items():
+            color = SUBSET_COLORS.get(name, "#333333")
+            ax.axvline(
+                float(val),
+                color=color,
+                linewidth=1.4,
+                linestyle=":",
+                zorder=2,
+                label=name,
+            )
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 1, pad=5)
+    ax.set_xlabel(xlabel, fontsize=PAPER_FONTS["label"] - 1)
+    ax.set_ylabel("count (random subsets)", fontsize=PAPER_FONTS["label"] - 1)
+    ax.tick_params(labelsize=PAPER_FONTS["tick"] - 2)
+    ax.grid(axis="y", alpha=0.25)
+    ax.set_axisbelow(True)
+    ax.text(
+        0.02,
+        0.98,
+        f"p = {p_value:.2f}",
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=PAPER_FONTS["annot"] - 1,
+        color="#333333",
+    )
+    h, lab = ax.get_legend_handles_labels()
+    if h:
+        ax.legend(
+            h,
+            lab,
+            loc="upper right",
+            fontsize=max(PAPER_FONTS["legend"] - 3, 7),
+            frameon=True,
+            framealpha=0.94,
+        )
+
+
+def _time_resolved_curves_on_ax(
+    ax: plt.Axes,
+    curves: Dict[str, Dict[str, np.ndarray]],
+    metric_key: str,
+    chance: Optional[float],
+    title: str,
+    ylabel: str,
+    ci_key: Optional[str] = None,
+) -> None:
+    for name, curve in curves.items():
+        color = SUBSET_COLORS.get(name, None)
+        ax.plot(
+            curve["time"],
+            curve[metric_key],
+            label=name,
+            color=color,
+            linewidth=1.6,
+        )
+        lo = curve.get(f"{ci_key}_lo") if ci_key else None
+        hi = curve.get(f"{ci_key}_hi") if ci_key else None
+        if lo is not None and hi is not None:
+            ax.fill_between(curve["time"], lo, hi, color=color, alpha=0.16, linewidth=0)
+    if chance is not None:
+        ax.axhline(
+            chance,
+            color="black",
+            linestyle="--",
+            linewidth=0.9,
+            label=f"chance ({chance:.2f})",
+        )
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 1, pad=5)
+    ax.set_xlabel("time (s)", fontsize=PAPER_FONTS["label"] - 1)
+    ax.set_ylabel(ylabel, fontsize=PAPER_FONTS["label"] - 1, labelpad=4)
+    ax.tick_params(labelsize=PAPER_FONTS["tick"] - 2)
+    ax.grid(alpha=0.2)
+    h, lab = ax.get_legend_handles_labels()
+    if h:
+        ax.legend(
+            h,
+            lab,
+            loc="upper right",
+            frameon=True,
+            framealpha=0.94,
+            fontsize=max(PAPER_FONTS["legend"] - 2, 8),
+        )
+
+
+def _acoustic_partial_on_ax(
+    ax: plt.Axes,
+    raw: Dict[str, np.ndarray],
+    partial: Dict[str, np.ndarray],
+    raw_perm: Dict[str, np.ndarray],
+    partial_perm: Dict[str, np.ndarray],
+    title: str,
+) -> None:
+    t = raw["time"]
+    ax.plot(
+        t,
+        raw["divergence"],
+        color=SUBSET_COLORS["song_only"],
+        linewidth=1.5,
+        label="raw",
+    )
+    ax.plot(
+        t,
+        raw_perm["env_95"],
+        color=SUBSET_COLORS["song_only"],
+        linewidth=0.9,
+        linestyle=":",
+        alpha=0.65,
+        label="raw null 95th",
+    )
+    ax.plot(
+        t,
+        partial["divergence"],
+        color="#1B7837",
+        linewidth=1.5,
+        label="partialled",
+    )
+    ax.plot(
+        t,
+        partial_perm["env_95"],
+        color="#1B7837",
+        linewidth=0.9,
+        linestyle=":",
+        alpha=0.65,
+        label="part. null 95th",
+    )
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 2, pad=4)
+    ax.set_xlabel("time (s)", fontsize=PAPER_FONTS["label"] - 2)
+    ax.set_ylabel("divergence", fontsize=PAPER_FONTS["label"] - 2)
+    ax.tick_params(labelsize=PAPER_FONTS["tick"] - 3)
+    ax.grid(alpha=0.2)
+    ax.legend(
+        loc="upper right",
+        fontsize=7,
+        frameon=True,
+        framealpha=0.92,
+    )
+
+
+def _loo_boxplot_on_ax(
+    ax: plt.Axes,
+    df,
+    metric_col: str,
+    ylabel: str,
+    title: str,
+    group_order: Iterable[str] = ("song", "speech", "music"),
+    p_value_text: Optional[str] = None,
+) -> None:
+    group_order = list(group_order)
+    data = [
+        df.loc[df["electrode_group"] == g, metric_col].to_numpy() for g in group_order
+    ]
+    ax.boxplot(data, labels=group_order, widths=0.5, showfliers=False)
+    rng = np.random.default_rng(0)
+    for i, vals in enumerate(data):
+        jitter = rng.normal(0, 0.04, size=vals.size)
+        gname = group_order[i]
+        sc = GROUP_LOO_COLORS.get(gname, "#333333")
+        ax.scatter(
+            np.full_like(vals, i + 1, dtype=float) + jitter,
+            vals,
+            color=sc,
+            alpha=0.75,
+            s=22,
+            edgecolor="white",
+            linewidth=0.4,
+        )
+    ax.axhline(0, color="black", linewidth=0.9, linestyle="--")
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 1, pad=5)
+    ax.set_xlabel("electrode group", fontsize=PAPER_FONTS["label"] - 1)
+    ax.set_ylabel(ylabel, fontsize=PAPER_FONTS["label"] - 1)
+    ax.tick_params(labelsize=PAPER_FONTS["tick"] - 2)
+    if p_value_text:
+        ax.text(
+            0.98,
+            0.98,
+            p_value_text,
+            transform=ax.transAxes,
+            va="top",
+            ha="right",
+            fontsize=PAPER_FONTS["annot"] - 2,
+            bbox=dict(
+                boxstyle="round,pad=0.35",
+                facecolor="white",
+                alpha=0.92,
+                edgecolor="#AAAAAA",
+                linewidth=0.7,
+            ),
+        )
+    ax.margins(x=0.02)
+    ax.grid(alpha=0.2, axis="y")
+
+
+def _bellier_stg_panels_on_ax(
+    axes: Sequence[plt.Axes],
+    profiles: Dict[str, dict],
+    groups: Sequence[str],
+    *,
+    suptitle: str,
+) -> None:
+    for ax, group in zip(axes, groups):
+        for event in ("vocal", "instrumental"):
+            key = f"{group}__{event}"
+            if key not in profiles:
+                continue
+            p = profiles[key]
+            t, m, s = p["time_s"], p["mean"], p["sem"]
+            color = EVENT_COLORS[event]
+            ax.plot(
+                t,
+                m,
+                label=f"{event} (n={p['n_events']})",
+                color=color,
+                linewidth=1.4,
+            )
+            ax.fill_between(t, m - s, m + s, color=color, alpha=0.16, linewidth=0)
+        ax.axvline(0, color="black", linewidth=0.7, linestyle="--")
+        ax.axhline(0, color="gray", linewidth=0.5)
+        ax.set_title(
+            f"{group} (n_elec={profiles[f'{group}__vocal']['n_elec']})",
+            fontsize=PAPER_FONTS["title"] - 2,
+        )
+        ax.set_xlabel("Time re: onset (s)", fontsize=PAPER_FONTS["label"] - 2)
+        ax.tick_params(labelsize=PAPER_FONTS["tick"] - 2)
+        ax.legend(frameon=False, fontsize=8, loc="upper right")
+    axes[0].set_ylabel("HFA (z)", fontsize=PAPER_FONTS["label"] - 2)
+    axes[0].figure.suptitle(suptitle, y=1.02, fontsize=PAPER_FONTS["suptitle"] - 2)
+
+
+def _bellier_overlay_on_ax(
+    ax: plt.Axes,
+    bellier_profiles: Dict[str, dict],
+    norman_profiles: Dict[str, dict],
+    bellier_groups: Sequence[str] = ("right_STG", "left_STG"),
+    norman_pair: tuple = ("song", "song"),
+    *,
+    title: str,
+) -> None:
+    def _norm(t: np.ndarray, y: np.ndarray) -> np.ndarray:
+        m = (t >= 0) & (t <= 1.5)
+        if not m.any():
+            return y
+        peak = float(np.nanmax(y[m]))
+        peak = peak if peak > 1e-9 else 1.0
+        return y / peak
+
+    for group in bellier_groups:
+        key = f"{group}__vocal"
+        if key not in bellier_profiles:
+            continue
+        p = bellier_profiles[key]
+        t, y = p["time_s"], p["mean"]
+        ax.plot(
+            t,
+            _norm(t, y),
+            label=f"Bellier {group} (vocal)",
+            color=BELLIER_SUBSET_COLORS[group],
+            linewidth=1.5,
+        )
+
+    eg, cls = norman_pair
+    key = f"{eg}__{cls}"
+    if key in norman_profiles:
+        p = norman_profiles[key]
+        t, y = p["time_s"], p["mean"]
+        ax.plot(
+            t,
+            _norm(t, y),
+            label=f"Norman {eg} ({cls})",
+            color="#E45756",
+            linestyle="--",
+            linewidth=1.5,
+        )
+
+    ax.axvline(0, color="black", linewidth=0.7, linestyle=":")
+    ax.axhline(0, color="gray", linewidth=0.5)
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 1, pad=5)
+    ax.set_xlabel("Time re: onset (s)", fontsize=PAPER_FONTS["label"] - 1)
+    ax.set_ylabel("HFA (normalized to peak)", fontsize=PAPER_FONTS["label"] - 1)
+    ax.tick_params(labelsize=PAPER_FONTS["tick"] - 2)
+    _legend_paper(ax, loc="upper right")
+
+
+def _bellier_decoder_bars_on_ax(ax: plt.Axes, summary, *, title: str) -> None:
+    df = summary.copy()
+    subsets = [
+        s
+        for s in ("all", "right_STG", "left_STG", "non_STG")
+        if s in df["subset"].unique()
+    ]
+    models = [m for m in ("logreg", "cnn") if m in df["model"].unique()]
+    x = np.arange(len(subsets))
+    width = 0.8 / max(1, len(models))
+    for mi, model in enumerate(models):
+        means, lo_err, hi_err = [], [], []
+        for sub in subsets:
+            row = df[(df["subset"] == sub) & (df["model"] == model)]
+            if row.empty:
+                means.append(np.nan)
+                lo_err.append(0)
+                hi_err.append(0)
+                continue
+            m = float(row["mean_bacc"].iloc[0])
+            lo = float(row["bacc_ci95_low"].iloc[0])
+            hi = float(row["bacc_ci95_high"].iloc[0])
+            means.append(m)
+            lo_err.append(max(0.0, m - lo))
+            hi_err.append(max(0.0, hi - m))
+        offset = (mi - (len(models) - 1) / 2) * width
+        ax.bar(
+            x + offset,
+            means,
+            width=width * 0.9,
+            yerr=[lo_err, hi_err],
+            capsize=2,
+            label=model,
+            color="#4C78A8" if model == "logreg" else "#E45756",
+            edgecolor="black",
+            linewidth=0.45,
+        )
+        for xi, m in zip(x + offset, means):
+            if np.isfinite(m):
+                ax.text(
+                    xi,
+                    m + 0.008,
+                    f"{m:.3f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
+    ax.axhline(0.5, color="black", linestyle="--", linewidth=0.9, label="chance")
+    ax.set_xticks(x)
+    ax.set_xticklabels(subsets, fontsize=PAPER_FONTS["tick"] - 1)
+    ax.set_ylabel("Balanced accuracy (95% CI)", fontsize=PAPER_FONTS["label"] - 1)
+    ax.set_title(title, fontsize=PAPER_FONTS["title"] - 1, pad=5)
+    ax.tick_params(axis="y", labelsize=PAPER_FONTS["tick"] - 2)
+    ax.set_ylim(
+        0.35,
+        min(1.0, float(np.nanmax(df["bacc_ci95_high"])) + 0.06),
+    )
+    _legend_paper(ax)
+
+
+def plot_figure1_composite(
+    cm_norm: np.ndarray,
+    class_names: Sequence[str],
+    decoder_curves: Dict[str, Dict[str, np.ndarray]],
+    divergence_curves: Dict[str, Dict[str, np.ndarray]],
+    random_bacc: Dict[str, object],
+    random_div: Dict[str, object],
+    stem: str = "fig1_main_composite",
+) -> Dict[str, Path]:
+    """Figure 1: confusion + null histograms (top) / decoder + divergence (bottom)."""
+    fig = plt.figure(figsize=(13.5, 9.2))
+    gs = fig.add_gridspec(
+        2,
+        6,
+        height_ratios=[1.0, 1.05],
+        hspace=0.38,
+        wspace=0.55,
+        left=0.06,
+        right=0.98,
+        top=0.94,
+        bottom=0.07,
+    )
+    ax_a = fig.add_subplot(gs[0, 0:2])
+    ax_d = fig.add_subplot(gs[0, 2:4])
+    ax_e = fig.add_subplot(gs[0, 4:6])
+    ax_b = fig.add_subplot(gs[1, 0:3])
+    ax_c = fig.add_subplot(gs[1, 3:6])
+
+    ref_b = random_bacc["reference_scores"]
+    if not isinstance(ref_b, dict):
+        ref_b = dict(ref_b)  # type: ignore[arg-type]
+    extra_b = {k: float(ref_b[k]) for k in ("all", "no_song") if k in ref_b}
+    _confusion_matrix_on_ax(
+        ax_a,
+        cm_norm,
+        class_names,
+        title="3-class decoder (grouped CV, window [0.2, 0.6])",
+    )
+    _random_subset_hist_compact_on_ax(
+        ax_d,
+        np.asarray(random_bacc["null_scores"], dtype=float),
+        float(random_bacc["true_score"]),
+        float(random_bacc["empirical_p_greater"]),
+        "Matched random-subset control (balanced accuracy)",
+        "song-vs-music balanced accuracy",
+        extra_lines=extra_b or None,
+    )
+    ref_d = random_div["reference_scores"]
+    if not isinstance(ref_d, dict):
+        ref_d = dict(ref_d)  # type: ignore[arg-type]
+    extra_d = {k: float(ref_d[k]) for k in ("all", "no_song") if k in ref_d}
+    _random_subset_hist_compact_on_ax(
+        ax_e,
+        np.asarray(random_div["null_scores"], dtype=float),
+        float(random_div["true_score"]),
+        float(random_div["empirical_p_greater"]),
+        "Matched random-subset control (RDM divergence)",
+        "song-vs-music divergence",
+        extra_lines=extra_d or None,
+    )
+    dec_payload = {
+        k: {
+            "time": v["time"],
+            "bacc": v["bacc"],
+            "bacc_ci_lo": v["bacc_ci_lo"],
+            "bacc_ci_hi": v["bacc_ci_hi"],
+        }
+        for k, v in decoder_curves.items()
+    }
+    _time_resolved_curves_on_ax(
+        ax_b,
+        dec_payload,
+        "bacc",
+        0.5,
+        "Song vs music time-resolved decoder",
+        "balanced accuracy",
+        ci_key="bacc_ci",
+    )
+    div_payload = {
+        k: {
+            "time": v["time"],
+            "divergence": v["divergence"],
+            "divergence_ci_lo": v["divergence_ci_lo"],
+            "divergence_ci_hi": v["divergence_ci_hi"],
+        }
+        for k, v in divergence_curves.items()
+    }
+    _time_resolved_curves_on_ax(
+        ax_c,
+        div_payload,
+        "divergence",
+        None,
+        "Song vs music divergence",
+        "divergence (between - within)",
+        ci_key="divergence_ci",
+    )
+    for ax, letter in (
+        (ax_a, "A"),
+        (ax_d, "D"),
+        (ax_e, "E"),
+        (ax_b, "B"),
+        (ax_c, "C"),
+    ):
+        ax.text(
+            -0.06,
+            1.05,
+            letter,
+            transform=ax.transAxes,
+            fontsize=16,
+            fontweight="bold",
+            va="bottom",
+            ha="right",
+        )
+    paths = _save(fig, stem)
+    plt.close(fig)
+    return paths
+
+
+def plot_figure2_composite(
+    acoustic_curves: Dict[str, dict],
+    cross_matrices: Dict[str, np.ndarray],
+    cross_times: np.ndarray,
+    cross_vmin: float,
+    cross_vmax: float,
+    loo_df,
+    loo_p_text_bacc: str,
+    stem: str = "fig2_mechanisms_composite",
+) -> Dict[str, Path]:
+    """Figure 2: acoustic partial / cross-temporal / LOO (bacc + divergence)."""
+    fig = plt.figure(figsize=(14.5, 14.0))
+    gs = fig.add_gridspec(
+        3,
+        1,
+        height_ratios=[0.28, 0.38, 0.26],
+        hspace=0.42,
+        left=0.06,
+        right=0.97,
+        top=0.95,
+        bottom=0.05,
+    )
+    gs_top = gs[0].subgridspec(1, 3, wspace=0.32)
+    for i, name in enumerate(("all", "no_song", "song_only")):
+        ax = fig.add_subplot(gs_top[0, i])
+        c = acoustic_curves[name]
+        _acoustic_partial_on_ax(
+            ax,
+            c["raw"],
+            c["partial"],
+            c["raw_perm"],
+            c["partial_perm"],
+            title=name,
+        )
+    gs_mid = gs[1].subgridspec(1, 4, width_ratios=[1.0, 1.0, 1.0, 0.12], wspace=0.28)
+    axes_ct = [fig.add_subplot(gs_mid[0, j]) for j in range(3)]
+    cax = fig.add_subplot(gs_mid[0, 3])
+    _render_cross_temporal_panels(
+        axes_ct,
+        cax,
+        cross_matrices,
+        cross_times,
+        cross_vmin,
+        cross_vmax,
+        title_fs=PAPER_FONTS["title"] - 2,
+    )
+    gs_bot = gs[2].subgridspec(1, 2, wspace=0.28)
+    ax_loo_b = fig.add_subplot(gs_bot[0, 0])
+    ax_loo_d = fig.add_subplot(gs_bot[0, 1])
+    _loo_boxplot_on_ax(
+        ax_loo_b,
+        loo_df,
+        "delta_bacc",
+        "drop in balanced accuracy when electrode removed",
+        "Leave-one-electrode-out (balanced accuracy)",
+        p_value_text=loo_p_text_bacc,
+    )
+    _loo_boxplot_on_ax(
+        ax_loo_d,
+        loo_df,
+        "delta_divergence",
+        "drop in divergence when electrode removed",
+        "Leave-one-electrode-out (divergence)",
+    )
+    fig.text(0.02, 0.93, "A", fontsize=16, fontweight="bold")
+    fig.text(0.02, 0.64, "B", fontsize=16, fontweight="bold")
+    fig.text(0.02, 0.33, "C", fontsize=16, fontweight="bold")
+    fig.text(0.52, 0.33, "D", fontsize=16, fontweight="bold")
+    paths = _save(fig, stem)
+    plt.close(fig)
+    return paths
+
+
+def plot_figure3_composite(
+    bellier_profiles: Dict[str, dict],
+    norman_profiles: Dict[str, dict],
+    bellier_summary,
+    stem: str = "fig3_bellier_composite",
+) -> Dict[str, Path]:
+    """Figure 3: Bellier STG profiles / cross-dataset overlay / decoder bars."""
+    fig = plt.figure(figsize=(13.5, 10.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[0.42, 0.48], hspace=0.38, wspace=0.3)
+    gs_a = gs[0, :].subgridspec(1, 2, wspace=0.28)
+    ax_ar = fig.add_subplot(gs_a[0, 0])
+    ax_al = fig.add_subplot(gs_a[0, 1])
+    _bellier_stg_panels_on_ax(
+        (ax_ar, ax_al),
+        bellier_profiles,
+        ("right_STG", "left_STG"),
+        suptitle="Bellier: event-locked HFA for vocal vs instrumental onsets",
+    )
+    ax_b = fig.add_subplot(gs[1, 0])
+    _bellier_overlay_on_ax(
+        ax_b,
+        bellier_profiles,
+        norman_profiles,
+        title="Cross-dataset temporal profiles",
+    )
+    ax_c = fig.add_subplot(gs[1, 1])
+    _bellier_decoder_bars_on_ax(
+        ax_c,
+        bellier_summary,
+        title="Bellier vocal vs instrumental decoder (blocked 5-fold CV)",
+    )
+    fig.text(0.02, 0.97, "A", fontsize=16, fontweight="bold")
+    fig.text(0.02, 0.48, "B", fontsize=16, fontweight="bold")
+    fig.text(0.52, 0.48, "C", fontsize=16, fontweight="bold")
     paths = _save(fig, stem)
     plt.close(fig)
     return paths
