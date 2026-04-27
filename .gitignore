@@ -14,5 +14,5 @@ __pycache__/
 .DS_Store
 
 # writeup   
-writeup.tex
-writeup.pdf
+# writeup.tex
+# writeup.pdf

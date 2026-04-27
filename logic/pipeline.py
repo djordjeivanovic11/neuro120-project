@@ -35,7 +35,7 @@ import json
 import sys
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import pandas as pd
@@ -1478,91 +1478,109 @@ def run_figure_composites(
     use_cache: Optional[bool] = None,
     force: bool = False,
     include_bellier: bool = True,
+    which: Optional[Set[str]] = None,
 ) -> Dict[str, object]:
     """Build multi-panel Figures 1--3 for the write-up (Georgia-style layout).
 
     Depends on the same ``run_*`` sections as the main paper; each call
     hits the pipeline cache when available.
+
+    Parameters
+    ----------
+    which
+        Subset of ``{"1", "2", "3"}`` to build. ``None`` means all panels
+        requested by ``include_bellier`` (Figure 3 only when True).
     """
     ensure_dirs()
     out: Dict[str, object] = {}
 
-    b = run_baseline_3class(ds, seed=seed, use_cache=use_cache, force=force)
-    r = run_random_subset_control(ds, seed=seed, use_cache=use_cache, force=force)
-    t = run_time_resolved_songmusic(
-        ds, n_boot=200, seed=seed, use_cache=use_cache, force=force
-    )
-    d = run_formalized_divergence(
-        ds,
-        n_boot=BOOTSTRAP_N,
-        n_perm=PERM_N,
-        seed=seed,
-        use_cache=use_cache,
-        force=force,
-    )
-    m = b["metrics"]
-    cm_norm = np.asarray(m["confusion_matrix_normalized"])
-    class_names = m["class_names"]
-    div_combined = {}
-    for name, pack in d["curves"].items():
-        obs = pack["observed"]
-        boot = pack["boot"]
-        div_combined[name] = {
-            "time": obs["time"],
-            "divergence": obs["divergence"],
-            "divergence_ci_lo": boot["ci_lo"],
-            "divergence_ci_hi": boot["ci_hi"],
-        }
-    out["figure1"] = plot_figure1_composite(
-        cm_norm,
-        class_names,
-        t["curves"],
-        div_combined,
-        r["by_metric"]["bacc"],
-        r["by_metric"]["divergence"],
-    )
+    if which is None:
+        want: Set[str] = {"1", "2"}
+        if include_bellier:
+            want.add("3")
+    else:
+        want = set(which) & {"1", "2", "3"}
+        if not include_bellier:
+            want.discard("3")
 
-    try:
-        ap = run_acoustic_partition(
-            ds, n_perm=PERM_N, seed=seed, use_cache=use_cache, force=force
+    if "1" in want:
+        b = run_baseline_3class(ds, seed=seed, use_cache=use_cache, force=force)
+        r = run_random_subset_control(ds, seed=seed, use_cache=use_cache, force=force)
+        t = run_time_resolved_songmusic(
+            ds, n_boot=200, seed=seed, use_cache=use_cache, force=force
         )
-        c = run_cross_temporal(ds, seed=seed, use_cache=use_cache, force=force)
-        l = run_loo_clean(
-            ds, n_perm=PERM_N, seed=seed, use_cache=use_cache, force=force
+        d = run_formalized_divergence(
+            ds,
+            n_boot=BOOTSTRAP_N,
+            n_perm=PERM_N,
+            seed=seed,
+            use_cache=use_cache,
+            force=force,
         )
-        df = l["df"]
-        observed_song = float(
-            df.loc[df["electrode_group"] == "song", "delta_bacc"].mean()
+        m = b["metrics"]
+        cm_norm = np.asarray(m["confusion_matrix_normalized"])
+        class_names = m["class_names"]
+        div_combined = {}
+        for name, pack in d["curves"].items():
+            obs = pack["observed"]
+            boot = pack["boot"]
+            div_combined[name] = {
+                "time": obs["time"],
+                "divergence": obs["divergence"],
+                "divergence_ci_lo": boot["ci_lo"],
+                "divergence_ci_hi": boot["ci_hi"],
+            }
+        out["figure1"] = plot_figure1_composite(
+            cm_norm,
+            class_names,
+            t["curves"],
+            div_combined,
+            r["by_metric"]["bacc"],
+            r["by_metric"]["divergence"],
         )
-        observed_other = float(
-            df.loc[df["electrode_group"] != "song", "delta_bacc"].mean()
-        )
-        p_text = (
-            f"mean song Δ = {observed_song:.3f}\n"
-            f"mean non-song Δ = {observed_other:.3f}\n"
-            f"permutation p (song > rest) = {float(l['p_value']):.4f}"
-        )
-        ct_results = c["results"]
-        vmin = float(
-            min(np.nanpercentile(ct_results[n]["matrix"], 5) for n in ct_results)
-        )
-        vmax = float(
-            max(np.nanpercentile(ct_results[n]["matrix"], 95) for n in ct_results)
-        )
-        out["figure2"] = plot_figure2_composite(
-            ap["curves"],
-            {name: ct_results[name]["matrix"] for name in ct_results},
-            ct_results[next(iter(ct_results))]["times"],
-            vmin,
-            vmax,
-            df,
-            p_text,
-        )
-    except FileNotFoundError as exc:
-        out["figure2_error"] = str(exc)
-        print(f"[figure composites] figure2 skipped: {exc}")
 
-    if include_bellier:
+    if "2" in want:
+        try:
+            ap = run_acoustic_partition(
+                ds, n_perm=PERM_N, seed=seed, use_cache=use_cache, force=force
+            )
+            c = run_cross_temporal(ds, seed=seed, use_cache=use_cache, force=force)
+            l = run_loo_clean(
+                ds, n_perm=PERM_N, seed=seed, use_cache=use_cache, force=force
+            )
+            df = l["df"]
+            observed_song = float(
+                df.loc[df["electrode_group"] == "song", "delta_bacc"].mean()
+            )
+            observed_other = float(
+                df.loc[df["electrode_group"] != "song", "delta_bacc"].mean()
+            )
+            p_text = (
+                f"mean song Δ = {observed_song:.3f}\n"
+                f"mean non-song Δ = {observed_other:.3f}\n"
+                f"permutation p (song > rest) = {float(l['p_value']):.4f}"
+            )
+            ct_results = c["results"]
+            vmin = float(
+                min(np.nanpercentile(ct_results[n]["matrix"], 5) for n in ct_results)
+            )
+            vmax = float(
+                max(np.nanpercentile(ct_results[n]["matrix"], 95) for n in ct_results)
+            )
+            out["figure2"] = plot_figure2_composite(
+                ap["curves"],
+                {name: ct_results[name]["matrix"] for name in ct_results},
+                ct_results[next(iter(ct_results))]["times"],
+                vmin,
+                vmax,
+                df,
+                p_text,
+            )
+        except FileNotFoundError as exc:
+            out["figure2_error"] = str(exc)
+            print(f"[figure composites] figure2 skipped: {exc}")
+
+    if "3" in want and include_bellier:
         try:
             bd = run_bellier_decoder(seed=seed, use_cache=use_cache, force=force)
             bp = run_bellier_profiles(
