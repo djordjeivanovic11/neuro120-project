@@ -41,9 +41,7 @@ from typing import Any, Dict, List, Optional, Set
 import numpy as np
 import pandas as pd
 
-from cache_io import delete_object, has_object, load_object, save_object
-
-logger = logging.getLogger(__name__)
+from cache_io import has_object, load_object, save_object
 from config import (
     BOOTSTRAP_N,
     CACHE_DIR,
@@ -60,6 +58,22 @@ from config import (
     WINDOW_SEC,
     ensure_dirs,
 )
+
+
+def delete_object(name: str) -> None:
+    """Drop ``results/cache/{safe(name)}.joblib``; delegates to :func:`cache_io.delete_object` when available."""
+    try:
+        from cache_io import delete_object as _cache_delete_object
+    except ImportError:  # pragma: no cover
+        path = CACHE_DIR / f"{name.replace(' ', '_').replace('/', '_')}.joblib"
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+    _cache_delete_object(name)
+
+
 from data_utils import build_dataset, load_acoustic_features, window_features
 from decoding import (
     cross_temporal_generalization,
@@ -98,6 +112,8 @@ from plots import (
     plot_temporal_profile_overlay,
     plot_time_resolved_curves,
 )
+
+logger = logging.getLogger(__name__)
 
 # Optional: TensorFlow + Haignere model (only :func:`bellier_fit_vocal_components` needs this).
 # Always define the name (some environments raise ImportError, not ModuleNotFoundError, or the
@@ -185,6 +201,26 @@ def _arr_key(a) -> str:
     """Short stable hash of array contents (for cache keys)."""
     b = np.asarray(a).tobytes()
     return hashlib.blake2b(b, digest_size=8).hexdigest()
+
+
+def _bellier_matched_subset_true_indices(bellier_component_out, subset_size: int) -> np.ndarray:
+    """Top-``k`` electrode indices for matched random-subset control.
+
+    Accepts either the dict from :func:`run_bellier_vocal_component_model` (uses
+    ``top_electrodes['electrode_index']``) or a 1-D array of indices (as used in
+    ``neuro120_bellier_supplement.ipynb``).
+    """
+    if isinstance(bellier_component_out, dict):
+        elec = bellier_component_out["top_electrodes"]["electrode_index"]
+        out = np.asarray(elec[:subset_size], dtype=int)
+    else:
+        raw = np.asarray(bellier_component_out, dtype=int).ravel()
+        if raw.size < subset_size:
+            raise ValueError(
+                f"Need at least {subset_size} electrode indices; got {raw.size}."
+            )
+        out = raw[:subset_size]
+    return out
 
 
 # top level sections driven by the notebook, one per figure or table
@@ -1819,8 +1855,10 @@ def run_bellier_matched_random_subset_control(
 
     Parameters
     ----------
-    bellier_component_out : dict
-        Output of run_bellier_vocal_component_model(...).
+    bellier_component_out
+        Output dict of :func:`run_bellier_vocal_component_model`, **or** a 1-D
+        array of electrode indices (first ``subset_size`` entries are used; same
+        convention as the supplement notebook).
     n_subsets : int
         Number of random matched subsets.
     subset_size : int
@@ -1843,9 +1881,8 @@ def run_bellier_matched_random_subset_control(
         }
     """
     sg = build_supergrid(cache=True, verbose=False)
-    true_subset = np.asarray(
-        bellier_component_out["top_electrodes"]["electrode_index"][:subset_size],
-        dtype=int,
+    true_subset = _bellier_matched_subset_true_indices(
+        bellier_component_out, subset_size
     )
     ckey = (
         f"bellier_mrs_{_supergrid_tag(sg)}_ts{_arr_key(true_subset)}_"
@@ -1951,6 +1988,10 @@ def run_bellier_top7_vs_random_avg(
     Compares the top component-loading electrodes to a null of ``n_random`` random
     same-size subsets. Exposes ``top_bacc`` and ``random_bacc`` for plotting in
     ``project_part2.ipynb`` (same meaning as ``true_score`` and ``null_scores``).
+
+    The first argument may be the full vocal-component dict **or** an explicit
+    length-``subset_size`` (or longer) ``electrode_index`` array, as in
+    ``neuro120_bellier_supplement.ipynb``.
     """
     out = run_bellier_matched_random_subset_control(
         bellier_component_out,
