@@ -1,24 +1,14 @@
-"""High-level analysis drivers.
+"""Higher-level analysis steps used by ``pipeline`` (subset tests, time courses, etc.).
 
-Each function here is a thin composition of lower-level modules
-(:mod:`data_utils`, :mod:`decoding`, :mod:`rdm`, :mod:`subsets`,
-:mod:`stats`). Every driver returns a plain dict of numpy arrays and
-Python scalars so callers (the notebook, :mod:`pipeline`, or an ad-hoc
-script) can save, plot, or diff the outputs without touching analysis
-internals.
-
-Design rationale
-----------------
-* Computation is strictly separated from plotting and file I/O: this
-  module never writes a CSV or draws a figure.
-* Every sampling step takes an explicit ``seed`` so results reproduce
-  exactly across runs.
+Calls ``data_utils``, ``decoding``, ``rdm``, ``subsets``, and ``stats``. Returns
+dicts/arrays only—no saving to disk. Pass ``seed`` for anything random.
 """
 from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
 import numpy as np
+from joblib import Parallel, delayed
 from sklearn.metrics import balanced_accuracy_score
 
 from config import (
@@ -30,6 +20,7 @@ from config import (
     STEP_SEC,
     SUBSET_SIZE,
     WINDOW_SEC,
+    sklearn_n_jobs,
 )
 from data_utils import window_features
 from decoding import (
@@ -60,9 +51,8 @@ def evaluate_subset(
 ) -> float:
     """Score one electrode subset on one task with one metric.
 
-    Used by the matched random-subset control (Figure 4) and the
-    leave-one-out analysis (Figure 7). Both applications need a
-    *single scalar* per subset; this function enforces that contract.
+    Used by the matched random-subset null and leave-one-out drivers; both
+    require a *single scalar* per subset, which this function enforces.
 
     Parameters
     ----------
@@ -150,7 +140,7 @@ def compare_true_vs_random_subsets(
 ) -> Dict[str, object]:
     """Compare the song-only subset against a matched random-subset null.
 
-    This is the headline analysis (Figure 4). We ask: does the small
+    This is the headline matched-null analysis for the write-up. We ask: does the small
     song-selective electrode pool separate song from music *better*
     than any equally-sized random subset drawn from the non-song pool?
     Random matched subsets are the right null because they control for
@@ -194,8 +184,9 @@ def compare_true_vs_random_subsets(
         * ``"true_score"`` : scalar song-only score.
         * ``"null_scores"`` : ``(n_subsets,)`` array of random-subset scores.
         * ``"reference_scores"`` : mapping extra-subset name to its score.
-        * ``"empirical_p_greater"`` : one-sided p-value for
-          ``true_score > null``.
+        * ``"empirical_p_greater"`` : one-sided empirical p-value
+          ``(# {null >= true} + 1) / (n + 1)`` (see :func:`stats.empirical_p_value`);
+          small values mean the true score sits in the **upper** tail of the null.
         * ``"diff_ci"`` : bootstrap percentile CI on the difference, dict
           with ``"lo"``/``"median"``/``"hi"``.
         * ``"diff_bootstrap_samples"`` : ``(bootstrap_diff_n,)`` raw samples.
@@ -245,8 +236,9 @@ def compare_true_vs_random_subsets(
         exclude_song=True,
         seed=seed,
     )
-    null_scores = np.array(
-        [
+
+    def _null_score(idx: np.ndarray) -> float:
+        return float(
             evaluate_subset(
                 idx,
                 X_tensor,
@@ -258,8 +250,13 @@ def compare_true_vs_random_subsets(
                 time_window=time_window,
                 seed=seed,
             )
-            for idx in subset_list
-        ]
+        )
+
+    null_scores = np.asarray(
+        Parallel(n_jobs=sklearn_n_jobs(), prefer="processes")(
+            delayed(_null_score)(idx) for idx in subset_list
+        ),
+        dtype=float,
     )
 
     p_greater = empirical_p_value(true_score, null_scores, alternative="greater")

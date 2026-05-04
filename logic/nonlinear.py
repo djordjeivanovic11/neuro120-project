@@ -1,16 +1,7 @@
-"""Nonlinear baselines (supplementary negative result).
+"""Extra decoders (SVM, autoencoder + logreg) for the supplement.
 
-Three model families are compared on identical grouped-CV splits:
-
-1. Linear logistic regression (matches the main-analysis baseline).
-2. RBF-SVM on PCA-reduced features.
-3. Autoencoder-latent features followed by logistic regression.
-
-All three run on the *same* stimulus-grouped CV splits used elsewhere in
-the project, so any performance differences are attributable to model
-family rather than to the split. With only 33 electrodes in
-Norman-Haignere, nonlinear models do not materially outperform the linear
-baseline -- we report this as a negative result rather than suppress it.
+Same grouped CV splits as ``decoding`` so results stay comparable to the
+linear baseline. No file output here—``pipeline`` saves tables and figures.
 """
 from __future__ import annotations
 
@@ -28,7 +19,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 
-from config import N_SPLITS, RANDOM_STATE
+from config import N_SPLITS, RANDOM_STATE, sklearn_n_jobs
 from decoding import make_grouped_splits, make_logreg
 
 
@@ -199,7 +190,10 @@ def run_nonlinear_comparison(
                 Xtr, Xte, latent_dim=latent_dim, random_state=seed
             )
             clf = LogisticRegression(
-                max_iter=10000, class_weight="balanced", random_state=seed
+                max_iter=10000,
+                class_weight="balanced",
+                random_state=seed,
+                n_jobs=sklearn_n_jobs(),
             )
             clf.fit(Ztr, ytr)
             return clf.predict(Zte)

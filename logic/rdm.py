@@ -1,29 +1,17 @@
-"""Representational dissimilarity matrices (RDMs) and divergence statistics.
+"""RDMs, song-vs-music divergence over time, bootstrap/permutation bands, and acoustic partialling helpers.
 
-We quantify how strongly the neural geometry separates two stimulus
-classes using a size-invariant *divergence* statistic::
-
-    D(a, b) = mean_between(a, b) - 0.5 * (mean_within(a) + mean_within(b))
-
-where ``mean_between`` averages the off-block RDM cells connecting
-class ``a`` rows to class ``b`` rows, and ``mean_within`` averages the
-strictly upper-triangular cells inside a class block. Subtracting the
-within-class baseline makes the statistic robust to differences in
-class-internal noise or compression.
-
-This module is pure computation: every function is deterministic given
-its inputs (plus ``seed`` for the resampling tests) and has no file I/O
-or plotting.
+All functions are in-memory only; pass ``seed`` where resampling is used.
 """
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from joblib import Parallel, delayed
 from scipy.spatial.distance import pdist, squareform
 from sklearn.preprocessing import StandardScaler
 
-from config import RANDOM_STATE
+from config import RANDOM_STATE, sklearn_n_jobs
 from data_utils import sliding_window_iter
 
 
@@ -310,7 +298,6 @@ def bootstrap_divergence_curve(
     """
     X_tensor = np.asarray(X_tensor)
     labels = np.asarray(labels)
-    rng = np.random.default_rng(seed)
 
     windows = list(sliding_window_iter(t, window_sec, step_sec))
     times = np.array([c for _, _, c in windows])
@@ -319,21 +306,28 @@ def bootstrap_divergence_curve(
     ia = np.where(labels == a)[0]
     ib = np.where(labels == b)[0]
 
-    boot = np.full((n_boot, len(windows)), np.nan)
-    for r in range(n_boot):
-        sa = rng.choice(ia, size=ia.size, replace=True)
-        sb = rng.choice(ib, size=ib.size, replace=True)
+    def _boot_row(r: int) -> np.ndarray:
+        row = np.full(len(windows), np.nan)
+        row_rng = np.random.default_rng(seed + 1_000_003 * r + 11)
+        sa = row_rng.choice(ia, size=ia.size, replace=True)
+        sb = row_rng.choice(ib, size=ib.size, replace=True)
         idx = np.concatenate([sa, sb])
-        # drop duplicates to avoid zero within class distances
         idx = np.unique(idx)
         sub_labels = labels[idx]
         if np.sum(sub_labels == a) < 2 or np.sum(sub_labels == b) < 2:
-            continue
+            return row
         sub = X_tensor[:, idx, :]
         for w_i, (start, end, _) in enumerate(windows):
-            boot[r, w_i] = _divergence_from_window(
+            row[w_i] = _divergence_from_window(
                 sub, sub_labels, start, end, pair, metric
             )["divergence"]
+        return row
+
+    boot = np.vstack(
+        Parallel(n_jobs=sklearn_n_jobs(), prefer="processes")(
+            delayed(_boot_row)(r) for r in range(n_boot)
+        )
+    )
 
     lo = np.nanquantile(boot, 0.025, axis=0)
     hi = np.nanquantile(boot, 0.975, axis=0)
@@ -377,7 +371,6 @@ def permutation_test_divergence_curve(
     labels = np.asarray(labels)
     if A is not None:
         A = np.asarray(A, dtype=float)
-    rng = np.random.default_rng(seed)
 
     windows = list(sliding_window_iter(t, window_sec, step_sec))
     times = np.array([c for _, _, c in windows])
@@ -397,13 +390,19 @@ def permutation_test_divergence_curve(
     in_pair = np.where(np.isin(labels, [a, b]))[0]
     pair_labels = labels[in_pair]
 
-    null = np.full((n_perm, len(windows)), np.nan)
-    for r in range(n_perm):
+    def _perm_row(r: int) -> np.ndarray:
+        row_rng = np.random.default_rng(seed + 1_000_007 * r + 13)
         shuffled = pair_labels.copy()
-        rng.shuffle(shuffled)
+        row_rng.shuffle(shuffled)
         full_labels = labels.copy()
         full_labels[in_pair] = shuffled
-        null[r] = _curve(full_labels)
+        return _curve(full_labels)
+
+    null = np.vstack(
+        Parallel(n_jobs=sklearn_n_jobs(), prefer="processes")(
+            delayed(_perm_row)(r) for r in range(n_perm)
+        )
+    )
 
     p_per_window = (np.sum(null >= observed[None, :], axis=0) + 1) / (n_perm + 1)
     env_95 = np.nanquantile(null, 0.95, axis=0)

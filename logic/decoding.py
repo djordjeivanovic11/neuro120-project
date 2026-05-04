@@ -1,18 +1,8 @@
-"""Grouped cross-validation and time-resolved decoders.
+"""Classifiers and cross-validation for Norman--Haignere tensors.
 
-All CV splits are stimulus-grouped via :class:`StratifiedGroupKFold` so
-that (a) no stimulus ID ever appears in both train and test folds and
-(b) class proportions stay approximately balanced across folds. This
-matters here because multiple electrodes observe the *same* stimulus:
-without grouping, features from the same stimulus would appear in both
-train and test and inflate decoding accuracy.
-
-Feature scaling is always fit inside each training fold via an sklearn
-:class:`Pipeline`; this prevents test-set leakage into the scaler
-statistics.
-
-This module is pure computation: no file I/O, no plotting, no global
-state. Every random choice is seeded by the caller.
+Uses stimulus-grouped folds so the same sound never appears in both train
+and test. Scalers live inside each fold’s sklearn ``Pipeline``. No file I/O;
+callers pass ``seed``.
 """
 from __future__ import annotations
 
@@ -73,6 +63,9 @@ def make_logreg(
                     class_weight=class_weight,
                     C=C,
                     random_state=random_state,
+                    # n_jobs=1: callers often parallelize at joblib level (nulls, LOO);
+                    # nested BLAS + sklearn threads across processes oversubscribes CPUs.
+                    n_jobs=1,
                 ),
             ),
         ]

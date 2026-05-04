@@ -1,19 +1,29 @@
 #!/usr/bin/env python3
-"""Generate Georgia-style composite paper figures (PDF + PNG) into results/figures/."""
+"""Assemble the three write-up composite PDFs from existing pipeline work.
 
-#
-# From the repo root (the folder that contains data/, logic/, scripts/):
-#   python scripts/generate_composite_figures.py
-#   python scripts/generate_composite_figures.py --only norman
-#   python scripts/generate_composite_figures.py --only 3
-#
-# Or with an absolute path (no cd needed):
-#   python /Users/you/.../neuro120-project/scripts/generate_composite_figures.py
-#
-# Do not use a literal "cd /path/to/neuro120-project" unless that path exists.
-#
-# Outputs: fig1_main_composite, fig2_mechanisms_composite, fig3_bellier_composite
-# If a long run was interrupted during Bellier/CNN, rerun with --only 3 to finish Figure 3 only.
+This script does **not** re-run the full analysis from scratch on purpose: it
+calls ``pipeline.run_figure_composites``, which pulls each panel’s numbers from
+the same ``run_*`` drivers as ``python logic/pipeline.py``. When pipeline
+caching is on (default), those steps reload from ``results/cache/pipe_*.joblib``
+if the cache key matches—so after a full ``run_all`` (or notebook) has filled
+the cache, this is a fast way to refresh ``fig1``–``fig3`` under
+``results/figures/``. If a cache entry is missing, the underlying ``run_*``
+recomputes that piece.
+
+Run from the repo root::
+
+    python scripts/generate_composite_figures.py
+    python scripts/generate_composite_figures.py --force
+    python scripts/generate_composite_figures.py --only 3
+
+Use ``--help`` for all flags. If loading ``results/cache/pipe_*.joblib`` fails
+(e.g. pandas version mismatch), ``--force`` recomputes panels and overwrites
+those entries; ``--no-cache`` skips reading and writing joblib cache entirely
+(slower, but nothing pickle-related can break).
+
+Figure 3 (Bellier) is omitted automatically if Bellier inputs are missing on
+disk (same behaviour as inside ``run_figure_composites``).
+"""
 from __future__ import annotations
 
 import argparse
@@ -22,97 +32,83 @@ from pathlib import Path
 
 
 def _ensure_logic_on_path() -> Path:
-    repo_root = Path(__file__).resolve().parent.parent
-    logic_dir = repo_root / "logic"
-    if not logic_dir.is_dir():
-        raise SystemExit(f"Expected logic/ at {logic_dir}")
-    sys.path.insert(0, str(logic_dir))
-    return repo_root
+    root = Path(__file__).resolve().parent.parent
+    logic = root / "logic"
+    if not logic.is_dir():
+        raise SystemExit(f"Expected logic/ at {logic}")
+    sys.path.insert(0, str(logic))
+    return root
+
+
+def _parse_which(s: str) -> set[str]:
+    parts = {p.strip() for p in s.replace(" ", "").split(",") if p.strip()}
+    bad = parts - {"1", "2", "3"}
+    if bad:
+        raise SystemExit(f"--only must use 1, 2, and/or 3 only; got {bad!r}")
+    return parts
 
 
 def main() -> None:
     repo_root = _ensure_logic_on_path()
 
-    p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="See the comment block at the top of this file for paths and outputs.",
+    ap = argparse.ArgumentParser(
+        description="Build fig1–fig3 composite PDFs/PNGs (same path as the notebooks)."
     )
-    p.add_argument(
-        "--only",
-        choices=("all", "norman", "1", "2", "3"),
-        default="all",
-        help="all: figures 1–3 (3 omitted with --no-bellier). norman: 1+2 only. "
-        "1/2/3: single composite (use --only 3 after an interrupted full run).",
-    )
-    p.add_argument(
-        "--no-bellier",
+    ap.add_argument(
+        "--force",
         action="store_true",
-        help="skip Figure 3 when --only all (ignored for --only 3)",
+        help="recompute each panel and overwrite pipe_*.joblib cache (fixes stale/broken pickles)",
     )
-    p.add_argument(
+    ap.add_argument(
         "--no-cache",
         action="store_true",
-        help="do not load pipeline joblib cache (always recompute upstream steps)",
+        help="do not read or write results/cache/pipe_*.joblib for this run",
     )
-    p.add_argument(
-        "--force-recompute",
+    ap.add_argument(
+        "--no-bellier",
         action="store_true",
-        help="overwrite pipeline cache entries when cache is enabled",
+        help="omit figure 3 even if Bellier data are present",
     )
-    p.add_argument("--seed", type=int, default=42)
-    args = p.parse_args()
+    ap.add_argument(
+        "--only",
+        metavar="PANELS",
+        help='comma-separated subset of {1,2,3}, e.g. "3" for Bellier composite only',
+    )
+    ap.add_argument("--seed", type=int, default=None, help="RNG seed (default: config.RANDOM_STATE)")
+    args = ap.parse_args()
 
-    from config import FIG_DIR  # noqa: WPS433 — after path setup
-    from data_utils import build_dataset
-    from pipeline import run_figure_composites
+    try:
+        from config import FIG_DIR, RANDOM_STATE  # noqa: PLC0415
+        from data_utils import build_dataset
+        from pipeline import run_figure_composites
+    except ImportError as exc:
+        req = repo_root / "requirements.txt"
+        mod = getattr(exc, "name", None) or str(exc)
+        raise SystemExit(
+            f"Missing Python dependency ({mod}). From the repo root:\n"
+            f"  {sys.executable} -m pip install -r {req}"
+        ) from exc
 
-    if args.only == "3" and args.no_bellier:
-        print(
-            "Note: --only 3 requires Bellier; ignoring --no-bellier.", file=sys.stderr
-        )
-
-    print(f"Repo root: {repo_root}")
-    print(f"Figures dir: {FIG_DIR}")
-
-    which = None
-    include_bellier = not args.no_bellier
-    if args.only == "norman":
-        which = {"1", "2"}
-        include_bellier = False
-    elif args.only == "1":
-        which = {"1"}
-        include_bellier = False
-    elif args.only == "2":
-        which = {"2"}
-        include_bellier = False
-    elif args.only == "3":
-        which = {"3"}
-        include_bellier = True
+    seed = RANDOM_STATE if args.seed is None else args.seed
+    which = _parse_which(args.only) if args.only else None
 
     ds = build_dataset()
     out = run_figure_composites(
         ds,
-        seed=args.seed,
+        seed=seed,
         use_cache=False if args.no_cache else None,
-        force=args.force_recompute,
-        include_bellier=include_bellier,
+        force=args.force,
+        include_bellier=not args.no_bellier,
         which=which,
     )
 
-    print("Done. Artifact keys:", sorted(out.keys()))
+    print(f"{repo_root}\n{FIG_DIR}\n{sorted(out.keys())}")
     for key in ("figure1", "figure2", "figure3"):
         if key in out and isinstance(out[key], dict):
             print(f"  {key}: {out[key].get('pdf', out[key])}")
     for err_key in ("figure2_error", "figure3_error"):
         if err_key in out:
-            print(f"  WARNING {err_key}: {out[err_key]}")
-    if args.only == "all" and include_bellier and "figure3" not in out:
-        print(
-            "  Hint: Figure 3 missing (skipped, failed, or interrupted). To build only Figure 3:\n"
-            "    python scripts/generate_composite_figures.py --only 3",
-            file=sys.stderr,
-        )
+            print(f"  skipped {err_key}: {out[err_key]}", file=sys.stderr)
 
 
 if __name__ == "__main__":

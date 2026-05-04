@@ -1,9 +1,11 @@
-"""``logic`` -- analysis modules for the song-vs-music ECoG project.
+"""Analysis code for the song-vs-music ECoG project (one folder = one package).
 
-Every computation, I/O, plotting, and orchestration module lives inside
-this package. Notebooks and scripts at the project root import from
-``logic`` either by using fully qualified names (``from logic.decoding
-import ...``) or, for backwards compatibility with the flat layout, by
-prepending this directory to ``sys.path`` so flat imports such as
-``from decoding import ...`` still resolve.
+Start in ``config`` (paths and numbers), then ``pipeline`` to regenerate
+``results/``. Other modules split the work: load data, decode, build RDMs,
+run stats, plot. Notebooks often add ``logic/`` to ``sys.path`` and import
+flat names like ``import pipeline``.
+
+Rough map: ``config``, ``data_utils``, ``subsets``, ``decoding``, ``rdm``,
+``stats``, ``analyses``, ``nonlinear``, ``bellier_data``, ``bellier_decoder``,
+``temporal_profile``, ``plots``, ``pipeline``, ``cache_io``.
 """

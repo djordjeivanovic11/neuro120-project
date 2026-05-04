@@ -1,22 +1,8 @@
-"""Data loading and dataset assembly for the Norman-Haignere ECoG files.
+"""Load Norman--Haignere ``.mat`` files and build the trial-level dataset dict.
 
-Public entry points
--------------------
-* :func:`build_dataset` -- load the 33 individual-electrode ``.mat`` files,
-  align them on a shared stimulus order, and return a single dict with
-  shape-checked tensors plus all metadata needed for stimulus-grouped
-  cross-validation (``stimulus_id``, ``electrode_group``, ``electrode_id``).
-* :func:`window_features` -- mean-pool the 3-D ECoG tensor over a time
-  window and return a 2-D ``(n_stimuli, n_electrodes)`` sklearn-ready
-  feature matrix.
-* :func:`load_acoustic_features` -- load the cochleogram + spectrotemporal
-  modulation regressors from the Norman-Haignere MATLAB files and
-  align them to the same stimulus order as the dataset.
-* :func:`sliding_window_iter` -- iterate ``(start, end, center)`` triples
-  for a sliding-window decoder.
-
-Everything in this module is a pure function: no globals, no plotting,
-no side effects other than reading the ``.mat`` files.
+Main entry: ``build_dataset`` (tensors + ``stimulus_id`` / electrode labels).
+Helpers: time-window pooling, acoustic regressors, sliding-window indices.
+Only reads files; no plots or tables.
 """
 from __future__ import annotations
 

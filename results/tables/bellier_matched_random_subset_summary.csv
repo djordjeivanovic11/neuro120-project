@@ -1,0 +1,2 @@
+task,subset_size,n_random_subsets,true_score,null_mean,null_std,null_median,empirical_p_greater
+bellier_vocal_vs_instrumental,7,5,0.6236504072696821,0.5487281907036492,0.032141560760702,0.5556194439340967,0.16666666666666666

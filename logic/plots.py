@@ -1,14 +1,9 @@
-"""Plotting helpers for the song-vs-music project.
+"""Matplotlib figures from numbers that other modules already computed.
 
-Every function in this module takes pre-computed arrays and renders one
-figure; there is no hidden state and no inline computation beyond
-trivial shaping. Saving to disk is centralised in :func:`_save`, which
-writes both ``.png`` (220 DPI) and ``.pdf`` to
-:data:`config.FIG_DIR` and closes the figure to keep memory bounded.
-
-Color decisions (``SUBSET_COLORS``, ``EVENT_COLORS``) are declared up
-front so every figure uses the same palette and nothing depends on a
-matplotlib default that could drift between versions.
+Each ``plot_*`` takes arrays or tables, saves ``.png`` and ``.pdf`` under
+:data:`config.FIG_DIR`, and closes the figure. Shared colours live in
+``SUBSET_COLORS`` / ``EVENT_COLORS``. Main multi-panel PDFs:
+``plot_figure1_composite``, ``plot_figure2_composite``, ``plot_figure3_composite``.
 """
 
 from __future__ import annotations
@@ -907,12 +902,11 @@ def plot_dataset_overview(
     y_coarse: Sequence[str],
     stem: str = "fig1_dataset_overview",
 ) -> Dict[str, Path]:
-    """Three-panel dataset summary (Figure 1).
+    """Two-panel dataset summary (default stem ``fig1_dataset_overview``).
 
-    Panel 1: stimuli per coarse class. Panel 2: electrodes per group.
-    Panel 3: monospace annotation explaining the four subsets used
-    throughout the paper (``all``, ``no_song``, ``song_only``,
-    random matched controls) and the key time/sampling parameters.
+    Left: stimulus counts per coarse class. Right: electrode counts per
+    selectivity group. Subset definitions and timing parameters are documented
+    in the write-up and :mod:`config` rather than duplicated here.
 
     Parameters
     ----------
@@ -1253,7 +1247,7 @@ def plot_temporal_profile_overlay(
     return paths
 
 
-# --- Multi-panel paper figures (Georgia-style composites) -----------------
+# --- Multi-panel composite figures (write-up PDFs) -------------------------
 
 
 def _confusion_matrix_on_ax(
@@ -1669,7 +1663,7 @@ def plot_figure1_composite(
     random_div: Dict[str, object],
     stem: str = "fig1_main_composite",
 ) -> Dict[str, Path]:
-    """Figure 1: confusion + null histograms (top) / decoder + divergence (bottom)."""
+    """Main composite: confusion, matched nulls, time-resolved decoder and divergence."""
     fig = plt.figure(figsize=(13.5, 9.2))
     gs = fig.add_gridspec(
         2,
@@ -1788,7 +1782,7 @@ def plot_figure2_composite(
     loo_p_text_bacc: str,
     stem: str = "fig2_mechanisms_composite",
 ) -> Dict[str, Path]:
-    """Figure 2: acoustic partial / cross-temporal / LOO (bacc + divergence)."""
+    """Mechanisms composite: acoustic partialling, cross-temporal maps, LOO panels."""
     fig = plt.figure(figsize=(14.5, 14.0))
     gs = fig.add_gridspec(
         3,
@@ -1857,7 +1851,7 @@ def plot_figure3_composite(
     bellier_summary,
     stem: str = "fig3_bellier_composite",
 ) -> Dict[str, Path]:
-    """Figure 3: Bellier STG profiles / cross-dataset overlay / decoder bars."""
+    """Bellier composite: STG event profiles, cross-dataset overlay, decoder bars."""
     fig = plt.figure(figsize=(13.5, 10.5))
     gs = fig.add_gridspec(2, 2, height_ratios=[0.42, 0.48], hspace=0.38, wspace=0.3)
     gs_a = gs[0, :].subgridspec(1, 2, wspace=0.28)

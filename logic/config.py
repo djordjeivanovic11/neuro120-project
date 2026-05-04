@@ -1,23 +1,23 @@
-"""Central configuration for the song-vs-music ECoG analysis.
+"""Paths, seeds, and hyperparameters for the whole project.
 
-Every hard-coded path, hyperparameter, and resampling budget used by the
-rest of the project is defined exactly once in this file and imported
-from here. Do **not** redefine these constants elsewhere; change them
-here and everything downstream will pick up the new value.
+Change numbers here instead of copying them into other files. One shared
+``RANDOM_STATE`` keeps CV and permutations reproducible.
 
-Design rationale
-----------------
-* A single source of truth makes the whole pipeline reproducible: a
-  grader or classmate can inspect this file to see every analysis
-  choice (seed, CV folds, permutation budget, time window).
-* Keeping ``RANDOM_STATE`` global means every resampling/CV step in
-  every module seeds the same way, so re-running reproduces all
-  figures bit-for-bit.
+Speed knobs: ``NEURO120_NUM_THREADS`` (BLAS/OpenMP), ``NEURO120_SKLEARN_JOBS``
+(sklearn/joblib), ``NEURO120_DEVICE`` / ``NEURO120_TORCH_NUM_THREADS`` (PyTorch;
+see :func:`get_torch_device`).
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+try:
+    from compute_env import apply_blas_thread_env
+
+    apply_blas_thread_env()
+except ImportError:  # pragma: no cover
+    pass
 
 # When True, :func:`pipeline` ``run_*`` restorers return values from
 # ``results/cache/pipe_*.joblib`` when a matching key exists (faster
@@ -57,7 +57,9 @@ SUBSET_SIZE = 7
 # early window used for summary statistics on the time resolved curves
 EARLY_WINDOW = (0.2, 0.6)
 
-# label groupings mapping fine labels to coarse labels
+# ---------------------------------------------------------------------------
+# Norman--Haignere stimulus labels (fine -> coarse collapse in ``data_utils``)
+# ---------------------------------------------------------------------------
 SPEECH_FINE = {"EngSpeech", "ForSpeech"}
 SONG_FINE = {"Song"}
 MUSIC_FINE = {"Music"}
@@ -73,19 +75,22 @@ BELLIER_DIR = DATA_ROOT / "bellier_2023"
 # primary dataset used for the main analyses
 DATA_DIR = NORMAN_HAIGNERE_DIR / "individual_electrodes"
 
-# norman haignere auxiliary files used by the acoustic partialled
-# divergence analysis, ecog_component_responses,mat carries the
-# canonical 165 stimulus ordering that acoustic_features,mat is
-# aligned to (see reference_code/ecog_acoustic_corr,m)
+# Acoustic regressors for ridge partialling: ``acoustic_features.mat`` and
+# ``ecog_component_responses.mat`` (canonical 165-stimulus order; see upstream MATLAB).
 NORMAN_ACOUSTIC_MAT = NORMAN_HAIGNERE_DIR / "acoustic_features.mat"
 NORMAN_COMPONENT_RESP_MAT = NORMAN_HAIGNERE_DIR / "ecog_component_responses.mat"
 
+# ---------------------------------------------------------------------------
+# Output directories (created by :func:`ensure_dirs`)
+# ---------------------------------------------------------------------------
 RESULTS_DIR = PROJECT_ROOT / "results"
 FIG_DIR = RESULTS_DIR / "figures"
 TAB_DIR = RESULTS_DIR / "tables"
 CACHE_DIR = RESULTS_DIR / "cache"
 
-# bellier 2023 extension (long timescale vocal coding)
+# ---------------------------------------------------------------------------
+# Bellier 2023 extension (continuous stimulus, 100 Hz HFA)
+# ---------------------------------------------------------------------------
 BELLIER_HFA_DIR = BELLIER_DIR / "hfa"
 BELLIER_STIM_DIR = BELLIER_DIR / "audio"
 BELLIER_AUDIO_PATH = BELLIER_STIM_DIR / "thewall1.wav"      # bellier provided wav
@@ -98,7 +103,7 @@ BELLIER_WIN_SEC = 0.5           # decoder feature window
 BELLIER_WIN_STEP_S = 0.1        # step between windows
 BELLIER_BOOT_N = 500            # bootstrap replicates for confidence intervals
 
-# temporal cnn hyperparameters, only runs if logreg beats chance
+# TinyTemporalCNN (PyTorch): only trained when logreg bacc clears chance by margin below
 CNN_EPOCHS = 40
 CNN_BATCH = 64
 CNN_LR = 1e-3
@@ -107,6 +112,62 @@ CNN_MIN_BACC_OVER_CHANCE = 0.05
 # event locked profile window around each onset
 PROFILE_PRE_SEC = 0.5
 PROFILE_POST_SEC = 1.5
+
+
+def get_torch_device():
+    """Return a ``torch.device`` for optional GPU acceleration (Bellier CNN).
+
+    Controlled by ``NEURO120_DEVICE`` (case-insensitive):
+
+    * ``auto`` (default) — CUDA if available, else Apple MPS if available, else CPU.
+    * ``cuda`` / ``gpu`` — CUDA when available, otherwise CPU.
+    * ``mps`` — Apple Silicon GPU when available, otherwise CPU.
+    * ``cpu`` / ``0`` / ``no`` / ``none`` — always CPU (closest to bit-reproducible training).
+
+    The main Norman--Haignere analyses use NumPy/sklearn only (CPU). Logistic
+    regression on Bellier is also CPU; this hook only affects the small PyTorch CNN.
+    """
+    import torch
+
+    from compute_env import apply_torch_thread_env
+
+    raw = os.environ.get("NEURO120_DEVICE", "auto").strip().lower()
+    if raw in ("cpu", "none", "no", "0"):
+        dev = torch.device("cpu")
+    elif raw in ("cuda", "gpu"):
+        dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    elif raw == "mps":
+        mps = getattr(torch.backends, "mps", None)
+        dev = (
+            torch.device("mps")
+            if mps is not None and mps.is_available()
+            else torch.device("cpu")
+        )
+    elif torch.cuda.is_available():
+        dev = torch.device("cuda")
+    elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        dev = torch.device("mps")
+    else:
+        dev = torch.device("cpu")
+
+    apply_torch_thread_env()
+    return dev
+
+
+def sklearn_n_jobs() -> int:
+    """Parallel workers for sklearn / joblib (``-1`` = all cores).
+
+    ``NEURO120_SKLEARN_JOBS``: empty, ``auto``, or ``-1`` → ``-1``; ``1`` forces
+    single-threaded fits (debug / notebooks that must stay deterministic step-by-step).
+    """
+    raw = os.environ.get("NEURO120_SKLEARN_JOBS", "").strip().lower()
+    if raw in ("", "auto", "-1", "all"):
+        return -1
+    try:
+        j = int(raw)
+        return j if j != 0 else 1
+    except ValueError:
+        return -1
 
 
 def ensure_dirs() -> None:

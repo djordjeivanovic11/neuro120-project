@@ -1,27 +1,17 @@
-"""Blocked-CV vocal-vs-instrumental decoder for the Bellier supergrid.
+"""Vocal vs instrumental decoding on the Bellier continuous HFA (windowed + blocked CV).
 
-Pipeline
---------
-1. Slice the continuous HFA into fixed-length windows
-   (:func:`make_windows`) and label each window by majority vote of the
-   vocal mask.
-2. Assign windows to interleaved blocked time folds
-   (:func:`interleaved_blocked_folds`) so no contiguous chunk of audio
-   leaks across train/test and every fold still sees both classes.
-3. Fit logistic regression under blocked CV -- always. This is the
-   headline result (Figure 8).
-4. Fit a tiny temporal CNN (:func:`run_cnn_subset`) *only* for subsets
-   where logreg already clears chance by at least
-   :data:`config.CNN_MIN_BACC_OVER_CHANCE`. The CNN is strictly
-   supplementary; it never rescues a null logreg result.
-
-Public entry point: :func:`run_vocal_instrumental_decoder`.
-
-Blocked CV is used here because neighbouring time windows are heavily
-correlated in HFA: a plain shuffled k-fold would leak nearby windows
-from train into test and inflate every score.
+Windows are labeled from the vocal mask; folds split *time blocks* so nearby
+windows do not leak between train and test. Logistic regression always runs;
+the small CNN runs only when logreg is already clearly above chance.
 """
 from __future__ import annotations
+
+try:
+    import compute_env as _compute_env
+
+    _compute_env.apply_blas_thread_env()
+except ImportError:  # pragma: no cover
+    _compute_env = None  # type: ignore[assignment]
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
@@ -30,6 +20,9 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+
+if _compute_env is not None:
+    _compute_env.apply_torch_thread_env()
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.metrics import balanced_accuracy_score, roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -46,10 +39,14 @@ from config import (
     CNN_LR,
     CNN_MIN_BACC_OVER_CHANCE,
     RANDOM_STATE,
+    get_torch_device,
+    sklearn_n_jobs,
 )
 
 
 CHANCE_BACC = 0.5
+# Log chosen PyTorch device once per process when the CNN runs (see ``run_cnn_subset``).
+_torch_device_logged: bool = False
 # cap cnn input width, logreg always uses the full subset
 CNN_MAX_N_ELEC = 256
 
@@ -58,6 +55,15 @@ CNN_MAX_N_ELEC = 256
 
 @dataclass
 class WindowedData:
+    """One Bellier decoding dataset after windowing and fold assignment.
+
+    ``X_mean`` is the electrode-wise mean HFA inside each window (used by
+    logistic regression). ``X_tensor`` keeps the full time samples inside
+    each window (used by the CNN). ``fold`` assigns each window to an
+    interleaved blocked-time CV fold; negative folds mark windows dropped
+    because they straddle a fold boundary.
+    """
+
     # per window 3d tensor used by the cnn
     X_tensor: np.ndarray   # shape (n_wins, n_elec, win_samples)
     # time averaged per window features used by logreg
@@ -346,7 +352,7 @@ def run_logreg_subset(
             ("sc", StandardScaler()),
             ("lr", LogisticRegressionCV(
                 Cs=np.logspace(-3, 3, 7), cv=3, max_iter=2000,
-                scoring="balanced_accuracy", n_jobs=1,
+                scoring="balanced_accuracy", n_jobs=sklearn_n_jobs(),
             )),
         ])
         pipe.fit(Xtr, ytr)
@@ -448,7 +454,11 @@ def run_cnn_subset(
     if chan_idx.size < X_tensor.shape[1]:
         X_tensor = X_tensor[:, chan_idx, :]
 
-    device = torch.device("cpu")
+    global _torch_device_logged
+    device = get_torch_device()
+    if not _torch_device_logged:
+        print(f"[bellier_decoder] PyTorch device for CNN: {device} (set NEURO120_DEVICE=cpu|cuda|mps|auto)")
+        _torch_device_logged = True
 
     # fit and predict callback for a single outer fold
     def _fit(Xtr, ytr, Xte, k, rng):

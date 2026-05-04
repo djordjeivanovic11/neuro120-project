@@ -1,16 +1,6 @@
-"""Bootstrap, empirical p-values, and other resampling utilities.
+"""Bootstrap confidence intervals and permutation-style p-values.
 
-This module contains pure analysis functions only: no file I/O, no
-plotting, no global state. Every random operation takes an explicit
-``seed`` so results are fully reproducible.
-
-Conventions
------------
-* ``n_boot`` / ``n_perm`` default to 1000 so that the (+1)/(N+1)
-  correction keeps p-values bounded below 1e-3 when the observed is
-  never matched by the null.
-* ``alpha`` is the two-sided coverage level (so the default
-  ``alpha=0.05`` returns a 95% percentile CI).
+Small helpers only; no I/O. Use the ``seed`` argument on random routines.
 """
 from __future__ import annotations
 

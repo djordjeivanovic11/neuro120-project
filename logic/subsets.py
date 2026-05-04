@@ -1,15 +1,7 @@
-"""Electrode-subset definitions and the matched random-subset sampler.
+"""Which electrodes go into ``all``, ``no_song``, and ``song_only`` pools.
 
-Three reference subsets drive every main figure:
-
-* ``all``        -- every electrode in the concatenated Norman-Haignere grid.
-* ``no_song``    -- non-song electrodes only (speech + music).
-* ``song_only``  -- the small song-selective pool.
-
-In addition, :func:`sample_random_subsets` builds the matched-size null
-we use to test whether ``song_only`` decodes song-vs-music better than an
-*arbitrary* size-matched subset of non-song electrodes (headline result,
-Figure 4).
+Also draws random same-sized subsets from the non-song pool for the matched
+null used in the main paper analysis.
 """
 from __future__ import annotations
 

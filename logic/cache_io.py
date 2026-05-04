@@ -1,45 +1,29 @@
-"""Lightweight on-disk cache under ``results/cache/`` (see :data:`config.CACHE_DIR`).
+"""Save and load cache files under ``results/cache/``.
 
-* **NumPy-only** results: use :func:`save_arrays` / :func:`load_arrays` (same
-  format as :func:`pipeline._save_cache`).
-* **Arbitrary objects** (nested dicts, DataFrames, lists of arrays): use
-  :func:`save_object` / :func:`load_object` (``joblib``, compressed) or
-  :func:`cached_run` to skip recomputation in one line.
-
-Tensors, live TF graphs, or open file handles may not serialize; in that
-case cache only the arrays you need (``npz``) or a reduced summary dict.
+Arrays go to compressed ``.npz`` via :func:`save_arrays` (used by
+:mod:`pipeline` for lightweight checkpoints). Python objects go to compressed
+``joblib`` via :func:`save_object` / :func:`load_object` / :func:`has_object`
+(used for ``pipe_*.joblib`` pipeline memoisation). Prefer numpy arrays and plain
+dicts so saves stay portable.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any
 
 import joblib
 import numpy as np
 
 from config import CACHE_DIR, ensure_dirs
 
-T = TypeVar("T")
-
 
 def save_arrays(stem: str, **arrays: np.ndarray) -> Path:
-    """Write ``results/cache/{stem}.npz`` (compressed). Same as ``pipeline._save_cache``."""
+    """Write ``results/cache/{stem}.npz`` (compressed)."""
     ensure_dirs()
     path = CACHE_DIR / f"{stem}.npz"
     np.savez_compressed(path, **arrays)
     return path
-
-
-def load_arrays(stem: str) -> dict[str, np.ndarray]:
-    """Load ``.npz`` as a str -> array dict."""
-    path = CACHE_DIR / f"{stem}.npz"
-    with np.load(path, allow_pickle=False) as z:
-        return {k: np.asarray(z[k]) for k in z.files}
-
-
-def has_arrays(stem: str) -> bool:
-    return (CACHE_DIR / f"{stem}.npz").is_file()
 
 
 def save_object(name: str, obj: Any, *, compress: int = 3) -> Path:
@@ -56,32 +40,19 @@ def load_object(name: str) -> Any:
 
 
 def has_object(name: str) -> bool:
+    """Return True if ``results/cache/{safe(name)}.joblib`` exists."""
     return (CACHE_DIR / f"{_safe_name(name)}.joblib").is_file()
 
 
-def cached_run(
-    name: str,
-    fn: Callable[[], T],
-    *,
-    force: bool = False,
-) -> T:
-    """Return ``fn()`` once, then reload from ``results/cache/{name}.joblib`` on later runs.
-
-    Example::
-
-        from cache_io import cached_run
-        import pipeline
-
-        out = cached_run("bellier_part2_run1", lambda: pipeline.run_bellier_vocal_component_model(
-            supergrid, vocal_present, K=5, ...
-        ))
-    """
-    if not force and has_object(name):
-        return load_object(name)
-    out = fn()
-    save_object(name, out)
-    return out
+def delete_object(name: str) -> None:
+    """Remove ``results/cache/{safe(name)}.joblib`` if it exists (ignore errors)."""
+    path = CACHE_DIR / f"{_safe_name(name)}.joblib"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _safe_name(name: str) -> str:
+    """Sanitise a cache key so it is safe as a single filename component."""
     return name.replace(" ", "_").replace("/", "_")

@@ -1,25 +1,7 @@
-"""Data loading and supergrid assembly for the Bellier 2023 ECoG dataset.
+"""Load Bellier ``.mat`` files, stack patients into one supergrid, vocal mask, anatomy tags.
 
-Each ``P*_HFA_data.mat`` stores ``ecog`` (``(T, n_elec)``) at 100 Hz
-aligned to the 190.72 s Pink Floyd stimulus, plus an ``artifacts`` mask
-and a ``dataInfo`` struct listing reference / noisy / epileptic
-channels to drop. The companion ``P*_MNI_electrode_coordinates.mat``
-stores MNI positions and FreeSurfer anatomical labels.
-
-Public entry points
--------------------
-* :func:`load_patient` -- load one patient with cleaned HFA + metadata.
-* :func:`build_supergrid` -- pool all 29 patients into a single
-  ``(T, n_electrodes)`` HFA matrix plus per-electrode provenance.
-* :func:`load_vocal_segments` -- parse the vocal-segment CSV into a
-  100 Hz binary mask aligned to the song.
-* :func:`electrode_subsets` -- index subsets for
-  ``{all, right_STG, left_STG, non_STG}`` used by downstream decoders.
-* :func:`detect_onsets` -- 0->1 transitions of a binary mask.
-* :func:`assign_anatomy` -- map a FreeSurfer label to our coarse group.
-
-This module is pure data handling: it reads MATLAB files and writes a
-cache ``.npz``, but performs no decoding, plotting, or statistics.
+Reads disk (and may write a cache ``.npz`` for the supergrid). No decoders or
+plots in this file.
 """
 from __future__ import annotations
 

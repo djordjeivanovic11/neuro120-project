@@ -1,23 +1,7 @@
-"""Event-locked temporal profile extraction and cross-dataset feature table.
+"""Average HFA around events (Bellier) or by class × electrode group (Norman).
 
-Two use cases:
-
-* Bellier: given a continuous HFA matrix and a binary vocal mask, build
-  event-locked averages around vocal onsets and (by symmetry) instrumental
-  onsets, for hemisphere-specific STG groups.
-
-* Norman-Haignere: given the trial-locked dataset tensor, collapse across
-  stimuli in each coarse class (song / music / speech) per electrode group
-  (song / music / speech electrodes) to get a comparable profile.
-
-For each profile we extract three simple shape features:
-
-    peak_latency_s           argmax within [0, peak_win_s] post-onset
-    onset_sustained_ratio    mean[0, 0.2]s divided by mean[0.5, 1.5]s
-    auc                      trapezoid integral of HFA in [0, post_s]
-
-The intent is a *qualitative* cross-dataset overlay; we do not run any
-between-dataset statistical test.
+Builds curves and a small table of shape features for qualitative comparison
+across datasets—not a formal cross-dataset hypothesis test.
 """
 from __future__ import annotations
 
