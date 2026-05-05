@@ -6,6 +6,8 @@
 % -----------------------------------------------------------------------------
 
 \usepackage[margin=0.9in]{geometry}
+\usepackage{titling}
+\setlength{\droptitle}{-1.25em}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath,amssymb}
@@ -13,6 +15,7 @@
 \usepackage{subcaption}
 \usepackage{microtype}
 \usepackage{hyperref}
+\usepackage{xurl}
 \hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue, citecolor=black}
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage{placeins}
@@ -23,21 +26,36 @@
 \captionsetup{font=small,labelfont=bf}
 \newcommand{\divg}{\mathcal{D}}
 
-\title{\textbf{Do song-selective electrodes carry more song-vs-music information? \\ A re-analysis of Norman--Haignere et al.\ (2022) with a Bellier et al.\ (2023) extension}}
-\author{Georgia Hutchinson, JaKayla Harris, Djordje Ivanovic\\ Group 5, NEURO 120 (Spring 2026)}
+\title{%
+  \textbf{Do song-selective electrodes carry more song-vs-music information?}\protect\\[0.35em]
+  {\large\textbf{A re-analysis of Norman--Haignere et al.\ (2022) with a Bellier et al.\ (2023) extension}}%
+}
+\author{%
+  Georgia Hutchinson \quad JaKayla Harris \quad Djordje Ivanovic\\[0.35em]
+  {\small Group 5 \;\textbar\; NEURO 120 (Spring 2026)}\\[0.55em]
+  {\footnotesize\textbf{Code:}\quad\protect\url{https://github.com/djordjeivanovic11/neuro120-project}}%
+}
 \date{\today}
 
 \begin{document}
 \maketitle
-
-\begin{center}
-\textbf{Codebase:} \url{https://github.com/djordjeivanovic11/neuro120-project}
-\end{center}
-
-\vspace{0.5em}
+\vspace{-1.75em}
 % =============================================================================
 \begin{abstract}
-\noindent \textbf{Question.} Do the brain regions that respond most strongly to song also carry the most \emph{information} a decoder could use to separate song from instrumental music? \textbf{What we replicate vs.\ what is original.} We replicate decoding and representational geometry on the published \citet{NormanHaignere2022} song/speech/music subset (33 electrocorticography, ECoG, electrodes; 49 stimuli; 0--2~s trial windows). Our original contributions are (i) a matched 7-vs-7 random-subset null that controls for subset-size confounds, (ii) ridge acoustic partialling on residuals to test for structure not linearly predicted by a cochleogram + spectrotemporal-modulation feature bank, and (iii) a \citet{Bellier2023} continuous-music extension using a vocal-vs-instrumental decoder with interleaved blocked-time cross-validation. \textbf{Findings.} Under the fair 7-vs-7 null, the seven song-selective electrodes are not privileged: balanced accuracy sits slightly below the random-draw mean (one-sided $p = 0.63$) and representational dissimilarity matrix (RDM) divergence modestly above it ($p = 0.35$); neither lies in the upper tail. Linearly subtracting low-level acoustics removes most of the divergence but leaves a residual ($0.33/0.39/0.47$ of the raw peak across song-only / all / no-song subsets), borderline-significant only for song-only ($p = 0.052$). On Bellier, the vocal-vs-instrumental decoder reaches $\approx 0.78$ balanced accuracy on the full 2395-electrode supergrid, with right-STG $>$ left-STG in the same direction as the published report. \textbf{Bottom line.} Song-selective electrodes are informative but not privileged under a size-matched information test, and the song-vs-music signal is largely, though not entirely, predictable from low-level acoustics.
+\noindent\textbf{Question.}\quad
+Do the brain regions that respond most strongly to song also carry the most \emph{information} a decoder could use to separate song from instrumental music?
+
+\smallskip
+\noindent\textbf{Replicate vs.\ original.}\quad
+We replicate decoding and representational geometry on the published \citet{NormanHaignere2022} song/speech/music subset (33 electrocorticography, ECoG, electrodes; 49 stimuli; 0--2~s trial windows). Our original contributions are (i) a matched 7-vs-7 random-subset null that controls for subset-size confounds, (ii) ridge acoustic partialling on residuals to test for structure not linearly predicted by a cochleogram + spectrotemporal-modulation feature bank, and (iii) a \citet{Bellier2023} continuous-music extension using a vocal-vs-instrumental decoder with interleaved blocked-time cross-validation.
+
+\smallskip
+\noindent\textbf{Findings.}\quad
+Under the fair 7-vs-7 null, the seven song-selective electrodes are not privileged: balanced accuracy sits slightly below the random-draw mean (one-sided $p = 0.63$) and representational dissimilarity matrix (RDM) divergence modestly above it ($p = 0.35$); neither lies in the upper tail. Linearly subtracting low-level acoustics removes most of the divergence but leaves a residual ($0.33/0.39/0.47$ of the raw peak across song-only / all / no-song subsets), borderline-significant only for song-only ($p = 0.052$). On Bellier, the vocal-vs-instrumental decoder reaches $\approx 0.78$ balanced accuracy on the full 2395-electrode supergrid, with right-STG $>$ left-STG in the same direction as the published report.
+
+\smallskip
+\noindent\textbf{Bottom line.}\quad
+Song-selective electrodes are informative but not privileged under a size-matched information test, and the song-vs-music signal is largely, though not entirely, predictable from low-level acoustics.
 \end{abstract}
 
 % =============================================================================
@@ -362,7 +380,7 @@ This shape mismatch is expected given how differently the stimuli are presented.
 \paragraph{Selectivity versus information.}
 More broadly, our result illustrates why response selectivity and information privilege should be treated as separate claims. A neural site can respond more strongly to a category without being an unusually strong channel for decoding that category at fixed electrode count. In ECoG work, small labelled groups can look impressive when compared against a much larger pool even when size-matched controls would show similar decodability. Future claims about category-selective populations should therefore pair response-amplitude or component-based selectivity with size-matched information controls, not only with contrasts against the full grid.
 
-\paragraph{Code and data availability.} All analyses run from the \texttt{logic/} directory (\texttt{python pipeline.py}, random seed 42) or via \texttt{python scripts/generate\_composite\_figures.py} from the repository root for the multi-panel figures (see \texttt{--help}, including \texttt{--only 3} for the Bellier composite alone). The full codebase, including \texttt{neuro120\_main\_reproduction.ipynb} (full write-up reproduction) and \texttt{neuro120\_bellier\_supplement.ipynb} (Bellier extension and supplementary figures), is available at \url{https://github.com/djordjeivanovic11/neuro120-project}. A separate document states course policy on generative-AI use. Norman--Haignere data are from the public release accompanying \citet{NormanHaignere2022}; Bellier ECoG data are from the public release accompanying \citet{Bellier2023}.
+\paragraph{Code and data availability.} All analyses run from the repository root: \path{python logic/pipeline.py} (random seed 42) or \path{python scripts/generate_composite_figures.py} for the multi-panel figures (see \path{--help}, including \path{--only 3} for the Bellier composite alone). The full codebase, including \path{neuro120_main_reproduction.ipynb} (full write-up reproduction) and \path{neuro120_bellier_supplement.ipynb} (Bellier extension and supplementary figures), is available at \url{https://github.com/djordjeivanovic11/neuro120-project}. A separate document states course policy on generative-AI use. Norman--Haignere data are from the public release accompanying \citet{NormanHaignere2022}; Bellier ECoG data are from the public release accompanying \citet{Bellier2023}.
 
 % =============================================================================
 \clearpage
@@ -437,36 +455,19 @@ Neuron, 102(6), 1096--1110.
 \addcontentsline{toc}{section}{Appendix A: Project Breakdown}
 
 \sloppy
-We list each member's primary responsibilities below. Where both names appear, the work was paired. Concrete file and figure references are given so the division of labor can be audited against the repository.
+Below we summarise who led which parts of the project. The repository (\texttt{logic/}, notebooks under the project root, and \texttt{results/}) is the ground truth for specific modules and figures.
 
 \paragraph{Djordje Ivanovic.}
-\begin{itemize}
-\setlength{\itemsep}{1pt}
-    \item \emph{Code (lead).} \texttt{logic/pipeline.py}, \texttt{logic/decoding.py}, \texttt{logic/rdm.py}, \texttt{logic/analyses.py}, \texttt{logic/subsets.py}, \texttt{logic/stats.py}, \texttt{logic/bellier\_data.py}, \texttt{logic/bellier\_decoder.py}, \texttt{logic/nonlinear.py}, \texttt{logic/temporal\_profile.py}, \texttt{logic/plots.py}, \texttt{logic/cache\_io.py}, \texttt{logic/config.py}.
-    \item \emph{Analyses.} Matched 7-vs-7 random-subset control; acoustic partialling and shuffle-correct null; cross-temporal generalisation; LOO; Bellier supergrid + interleaved-folds CV; non-linear controls.
-    \item \emph{Figures and tables.} \texttt{fig1\_main\_composite}, \texttt{fig2\_mechanisms\_composite}, \texttt{fig3\_bellier\_composite}, \texttt{fig\_nonlinear\_comparison}; Tables~\ref{tab:methods-roadmap}, \ref{tab:acoustic}, \ref{tab:loo}, \ref{tab:bellier}, \ref{tab:profiles}.
-    \item \emph{Writing.} Methods (\S\ref{sec:methods}), Results (\S\ref{sec:results}), most of Discussion (\S\ref{sec:discussion}).
-\end{itemize}
+Djordje implemented and maintained most of the codebase: end-to-end orchestration in \texttt{logic/pipeline.py}, caching and configuration, the main and Bellier supplement notebooks, and the scripts that regenerate tables and composite figures. He ran the headline analyses (matched random-subset null, acoustic partialling, cross-temporal matrices, LOO, Bellier decoder and profiles, nonlinear controls) and drafted Methods (\S\ref{sec:methods}), Results (\S\ref{sec:results}), and the bulk of the Discussion (\S\ref{sec:discussion}). He also handled GitHub maintenance and release hygiene so the project stays reproducible for graders.
 
 \paragraph{Georgia Hutchinson.}
-\begin{itemize}
-\setlength{\itemsep}{1pt}
-    \item \emph{Code.} [fill: which \texttt{logic/} modules or notebook cells; e.g.\ refinements to \texttt{decoding.py} folds, \texttt{nonlinear.py} grid, plotting helpers in \texttt{plots.py}].
-    \item \emph{Analyses.} Modelling and validation of the song/speech/music decoder; presentation of results [fill: any specific subsections owned end-to-end].
-    \item \emph{Figures and tables.} [fill: e.g.\ \texttt{fig1\_dataset\_overview}, confusion-matrix panel, table styling].
-    \item \emph{Writing.} [fill: e.g.\ Methods \S2.3--2.5, Results \S3.1--3.3, integration of figure captions].
-\end{itemize}
+Georgia took the lead on explaining the statistical pipeline and analysis choices in plain language: how cross-validation is grouped, what the nulls test, and how to read the main figures without overstating. She worked closely with Djordje to align those explanations with the actual code paths and outputs. She contributed to validating the core Norman decoding setup, polishing presentation of results, and tightening captions and tables so they match the numbers in \texttt{results/tables/}.
 
 \paragraph{JaKayla Harris.}
-\begin{itemize}
-\setlength{\itemsep}{1pt}
-    \item \emph{Research survey and framing.} Literature scan of song/music selectivity in human auditory cortex; mapping prior work to the gap addressed here.
-    \item \emph{Writing.} Introduction (\S\ref{sec:intro}); references; non-specialist clarity passes [fill: any further sections drafted, e.g.\ Discussion paragraph on broader implications].
-    \item \emph{Other.} [fill: e.g.\ proposal/check-in drafts, peer-review response triage, glossary additions].
-\end{itemize}
+JaKayla led the literature survey that frames the Introduction (\S\ref{sec:intro}): prior work on auditory selectivity, how it connects to Norman--Haignere and Bellier, and careful handling of citations and bibliography formatting. She participated in group ideation on motivating questions and plausible follow-ups once the null results were clear, and helped keep the narrative accessible to a non-specialist reader.
 
 \paragraph{Joint work.}
-All three members jointly scoped the research questions, agreed on the matched random-subset control and the acoustic-partialled extension, integrated peer-review feedback, and reviewed every figure, table, and headline number in this manuscript before submission.
+All three members scoped the research questions together, agreed on the matched random-subset control and the acoustic-partialled extension, integrated peer-review feedback, and reviewed every figure, table, and headline number before submission.
 
 % =============================================================================
 \section*{Appendix B: AI Use}
