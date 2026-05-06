@@ -62,24 +62,28 @@ Song-selective electrodes are informative but not privileged under a size-matche
 \section{Introduction}\label{sec:intro}
 % =============================================================================
 
-People separate speech, song, and instrumental music almost effortlessly. Listeners can tell voice from non-voice sounds within tens of milliseconds \citep{Mesgarani2014}, and fMRI voxel-decomposition work has shown that music and speech sit on largely distinct cortical pathways in human auditory cortex \citep{NormanHaignere2015}. Less is known about how the brain differentiates instrumental music from vocal music (song), which combines those two pathways.
+Music is a nearly universal human experience, and is substantially different from analogues in other species \cite{Patel2019}. As such, understanding the neural basis of music perception is a key aim of auditory neuroscience. Humans are able to quickly and accurately differentiate between speech, song, and instrumental music, and can distinguish voice from non-voice sounds within tens of milliseconds, reflecting rapid encoding in the auditory cortex \cite{Mesgarani2014}. Although the music perception network is understood to overlap extensively with the speech perception network \cite{Yi2019,Rogalsky2011,Abrams2011}, recent research has supported the hypothesis that there are distinct neural populations activated during music. fMRI voxel-decomposition work has shown that music and speech sit on distinct cortical pathways in human auditory cortex \cite{NormanHaignere2015}.
 
-\citet{NormanHaignere2022} took the first direct electrophysiology step toward an answer. They recorded ECoG responses to 165 natural sounds and decomposed the electrode responses into hypothesis-free components. One component responded more strongly to song than to either speech or instrumental music, and this song response could not be rewritten as a combination of the speech- and music-selective components. Seven ECoG electrodes were flagged as ``song-selective.'' These seven electrodes are the starting point for our project.
+Recent research has examined whether subtypes of music are processed using distinct neural pathways. Casey \cite{Casey2017} showed that higher-level musical attributes such as genre and instrument category can be decoded from distributed patterns of fMRI activity during music listening. Norman-Haignere et al.\ \cite{NormanHaignere2022} used intracranial EEG (electrocorticography, ECoG) to test whether specific neural populations respond differently to vocal music (song) and instrumental music. They recorded ECoG responses to 165 natural sounds and decomposed the electrode responses into hypothesis-free components. One component responded more strongly to song than to either speech or instrumental music, and this song-selective response could not be explained as a linear combination of speech- and music-selective components. Seven ECoG electrodes were identified as ``song-selective,'' and these electrodes form the starting point for the present study.
 
-\paragraph{What we ask.} The \citet{NormanHaignere2022} labels are defined on the \emph{average} response magnitude: a song-selective electrode is one whose mean response is higher to song than to other sounds. But firing strongly and carrying useful information are not the same thing. Imagine a light that flashes brightly whenever there is sound of any kind: it responds strongly, but it does not help you tell song apart from music. An electrode that always fires more during song might in principle do the same thing. So we asked what happens when we probe these electrodes with a decoder instead. Specifically:
+\paragraph{What we ask.} The \citet{NormanHaignere2022} labels are defined on the \emph{average} response magnitude: a song-selective electrode is one whose mean response is higher to song than to other sounds. But firing strongly and carrying useful information are not the same thing. Imagine a light that flashes brightly whenever there is sound of any kind: it responds strongly, but it does not help you tell song apart from music. An electrode that always fires more during song might in principle do the same thing. So we asked what happens when we probe these electrodes with a decoder instead. Specifically, we ask: \textbf{Do the song-selective electrodes identified in Norman-Hangeiere contain distinctive, temporally structured information that differentiate song from instrumental music beyond low-level acoustic features?}
 
+This question can be broken into the following parts:
 \begin{enumerate}
 \setlength{\itemsep}{0pt}
-    \item \textbf{Are song-selective electrodes actually better at separating song from instrumental music than other auditory-cortex electrodes?}
-    \item \textbf{When does the song-vs-instrumental difference appear over time, and does it stay stable?}
-    \item \textbf{Is the difference mostly explained by low-level acoustics, or does some of it remain after acoustics are controlled for?}
+    \item {Are song-selective electrodes actually better at separating song from instrumental music than other auditory-cortex electrodes?}
+    \item {When does the song-vs-instrumental difference appear over time, and does it stay stable?}
+    \item {Is the difference mostly explained by low-level acoustics, or does some of it remain after acoustics are controlled for?}
 \end{enumerate}
 
-Question (1) is the central one, and it has a built-in pitfall. Smaller electrode sets are easier for a linear decoder to fit, so comparing 7 song electrodes directly against all 33 electrodes would confound subset size with selectivity. To avoid this, we built a fair comparison group. We drew 7 electrodes at random from the pool of \emph{non}-song electrodes, measured how well those 7 decode song from music, and repeated this 1000 times. We call each such draw a \emph{matched random subset}: same size as the song-selective group (7), but from electrodes that are \emph{not} labelled song-selective. If the song electrodes are truly special, their decoder score should sit in the upper tail of this distribution. If not, random size-matched non-song subsets will often score as well as or better than the song-selective set under the same pipeline---which is what we observe for balanced accuracy, while RDM divergence sits only modestly above the random-draw mean without reaching the upper tail.
+We will use a linear decoder to determine if the neural activity in song-selective electrodes can be decoded more accurately than non-song selective electrodes. Given the size difference between the song selective class and the  \emph{non}-song electrode class, we will fit a linear decoder to a \emph{matched random subset} of 7 song electrodes and 7 non-song electrodes, and repeat this process 1000 times. We hypothesize that, if the song electrodes are truly special, which we would expect given prior research, that their decoder score should sit in the upper tail of this distribution. If not, random size-matched non-song subsets will often score as well as or better than the song-selective set under the same pipeline.
 
-Question (3) is motivated by what is already known about the superior temporal gyrus (STG), the cortical region most electrodes in both datasets sit on. A large fraction of STG responses to complex sounds is explained by cochleogram and spectrotemporal-modulation statistics \citep{Mesgarani2014,Hullett2016,Hamilton2018}, but phonetic, prosodic, and melodic structure also contribute \citep{Yi2019,Sankaran2024,Leonard2024}. If the song-vs-music signal turns out to be a pure re-encoding of acoustics, there is nothing song-specific left to explain. If part of it survives after acoustics are controlled for, auditory cortex may still carry song-vs-music structure that is not linearly predicted by that specific acoustic feature bank.
+We will compare temporal aspects of the song-vs-instrumental difference through looking at the divergence and decoder accuracy ahead of time. If decoder accuracy or divergence increases more quickly for song-selective electrodes, it could point to a more efficient pathway for decoding song information or simply be a consequence of higher overall decoding accuracy.
 
-\paragraph{Does it hold in continuous music?} Short, repeated stimuli are convenient for trial-averaging but may not generalise to natural listening \citep{HamiltonHuth2020}. We therefore re-run question (1) on the \citet{Bellier2023} dataset: ECoG from 29 patients listening to a continuous 191-second excerpt of Pink Floyd's \emph{Another Brick in the Wall, Part 1}, with hundreds of electrodes per patient. This extension is deliberately bounded: one decoder, one anatomical split, one temporal-profile comparison. The goal is to check whether our central finding survives a very different stimulus regime, not to build a second project around the dataset.
+The third part is motivated by what is already known about the superior temporal gyrus (STG), the cortical region most electrodes in both datasets sit on. A large fraction of STG responses to complex sounds is explained by cochleogram and spectrotemporal-modulation statistics \citep{Mesgarani2014,Hullett2016,Hamilton2018}, but phonetic, prosodic, and melodic structure also contribute \citep{Yi2019,Sankaran2024,Leonard2024}. If the song-vs-music signal turns out to be a pure re-encoding of acoustics, there is nothing song-specific left to explain. If part of it survives after acoustics are controlled for, auditory cortex may still carry song-vs-music structure that is not linearly predicted by that specific acoustic feature bank.
+
+Finally, we aim to explore whether 
+attributes of song-selective electrodes identified in short, repeated stimuli generalize to continuous music. Short, repeated stimuli are convenient for trial-averaging but may not generalise to natural listening \citep{HamiltonHuth2020}. We therefore re-run question (1) on the \citet{Bellier2023} dataset: ECoG from 29 patients listening to a continuous 191-second excerpt of Pink Floyd's \emph{Another Brick in the Wall, Part 1}, with hundreds of electrodes per patient. This extension is deliberately bounded: one decoder, one anatomical split, one temporal-profile comparison. The goal is to check whether our central finding survives a very different stimulus regime, not to build a second project around the dataset.
 
 % =============================================================================
 \section{Methods}\label{sec:methods}
@@ -186,12 +190,20 @@ Finally, we wanted to rule out the possibility that our negative random-subset r
 
 \emph{Can a simple classifier tell song, speech, and music apart at all using these electrodes?} If it cannot, there is no point asking subtler questions. Figure~\ref{fig:dataset} summarises the dataset layout after class trimming: 33 electrodes, 49 stimuli, and 75 time samples spanning 0--2~s, with $(11, 17, 21)$ stimuli per class and $(7, 15, 11)$ electrodes per selectivity group. A three-class logistic-regression decoder separates them easily: balanced accuracy reaches 0.98 on the early $[0.2, 0.6]$~s window (macro-F1 0.98; per-class recall $0.95, 1.00, 1.00$ for music, song, speech). Crucially, every residual error is a song-to-music confusion (panel~(a) of Fig.~\ref{fig:mainnorman}). That specific failure mode is what the rest of the paper is about.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.72\textwidth]{fig1_dataset_overview.pdf}
-\caption{\textbf{Dataset layout.} Stimulus counts per coarse class and electrode counts per selectivity group after trimming to the 49-stimulus \{song, speech, music\} subset. The three subsets used later are \textsf{all} (33 electrodes), \textsf{song\_only} (7 song-selective electrodes), and \textsf{no\_song} (26 speech- and music-selective electrodes); \emph{matched random subsets} are 1000 draws of 7 electrodes from the \textsf{no\_song} pool for a fair size-matched null.}
-\label{fig:dataset}
-\end{figure}
+\begin{table}[t]
+\centering\small
+\caption{\textbf{Stimulus counts per coarse class and electrode counts per selectivity group.} The dataset was trimmed to the 49-stimulus \{song, speech, music\} subset. The three subsets used later are \textsf{all} (33 electrodes), \textsf{song\_only} (7 song-selective electrodes), and \textsf{no\_song} (26 speech- and music-selective electrodes); \emph{matched random subsets} are 1000 draws of 7 electrodes from the \textsf{no\_song} pool for a fair size-matched null.}
+\label{tab:divergence}
+\begin{tabular}{lcc}
+\toprule
+class & stimuli per class & electrodes per class \\
+\midrule
+music  & 21 & 11 \\
+song   & 11 & 7 \\
+speech & 17 & 15 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{When does the song-vs-music difference appear?}
 
@@ -357,28 +369,21 @@ This shape mismatch is expected given how differently the stimuli are presented.
 \section{Discussion}\label{sec:discussion}
 % =============================================================================
 
-\paragraph{How this refines \citet{NormanHaignere2022}.} The original paper showed that song-selective electrodes exist in the sense that their trial-averaged response is larger for song than for other sounds. Our re-analysis asks a slightly different question: are those same electrodes disproportionately \emph{informative} for a decoder trying to separate song from instrumental music? An electrode can fire more strongly during song without actually helping a classifier, so the two questions are not the same. The answer we get is: no, under the primary matched 7-vs-7 random-subset test. A song-selective electrode fires more strongly to song on average, but the seven song contacts as a set do not sit in the extreme tail of size-matched non-song draws. The song electrodes do show one secondary pattern: their representation looks somewhat more temporally stable (Fig.~\ref{fig:mechanisms}, panel~b). A leave-one-out check on time-mean decoding does not yield a significant song-vs-rest group contrast ($p \approx 0.23$). Neither overturns the group-level null. The specialisation reported in \citet{NormanHaignere2022} is real and consistent with our data; it is just narrower than a naive reading would suggest.
+Our initial analysis explored whether the electrodes identified in \citet{NormanHaignere2022} as having a higher trial-averaged response to song were actually disproportionately informative. We performed a matched 7-vs-7 random-subset test and found that song-selective electrodes do not sit in the extreme tail of size-matched non-song draws, meaning that they are not uniquely informative for a decoder. The song electrodes do show one secondary pattern: their representation looks somewhat more temporally stable (Fig.~\ref{fig:mechanisms}, panel~b). A leave-one-out check on time-mean decoding does not yield a significant song-vs-rest group contrast ($p \approx 0.23$). Neither overturns the group-level null. We also found that subtracting out low-level acoustic information from the neural features removes about two-thirds of the song-vs-music RDM peak but leaves a residual, with a surviving fraction of $0.33$--$0.47$. The permutation test on the residual does not cleanly clear significance at this $N$: $p = 0.052$ for \textsf{song\_only}, $p = 0.108$ for \textsf{all}, and $p = 0.410$ for \textsf{no\_song}. Finally, we used data from \citet{Bellier2023} to show that continuous vocal-vs-instrumental music is decodable with $0.78$ balanced accuracy on 191~s of continuous song, with right STG slightly beating left STG in the same direction as \citet{Bellier2023}. We did not run a permutation null on the anatomical comparison, so this is directional only. The cross-dataset temporal-profile comparison also shows that the two datasets emphasise different phases of the response: Norman's trial-locked profiles highlight the sustained phase, while Bellier's vocal-onset profiles highlight the transient onset.
 
-\paragraph{Acoustic vs. post-acoustic coding.} Subtracting out low-level acoustic information from the neural features removes about two-thirds of the song-vs-music RDM peak but leaves a residual (fraction surviving $0.33$--$0.47$). Most of what the brain is doing in this distinction, then, really is just tracking basic sound structure. The permutation test on the residual does not cleanly clear significance at this $N$: $p = 0.052$ for \textsf{song\_only}, $p = 0.108$ for \textsf{all}, $p = 0.410$ for \textsf{no\_song}. We therefore cannot claim a robustly significant non-acoustic component, and we should not call the surviving structure a ``post-acoustic code.'' What we can say is that some geometry remains after regressing out the specific linear acoustic feature set of \citet{NormanHaignere2022}, that the surviving fraction is similar across subsets, and that the partialled peak arrives later in the trial ($1.37$--$1.47$~s, compared to raw peaks at $0.37$--$1.72$~s). These are the directions expected if the STG combines basic acoustic input with higher-order category cues \citep{Hullett2016,BhayaGrossman2022,Mesgarani2014,Yi2019,Leonard2024,Sankaran2024}, but they are suggestive rather than conclusive.
-
-\paragraph{Does it hold in continuous music?} The Bellier extension plays two roles. First, it is a naturalistic sanity check \citep{HamiltonHuth2020}: a vocal-vs-instrumental decoder reaches $0.78$ balanced accuracy on 191~s of continuous song, and right STG slightly beats left STG in the same direction as \citet{Bellier2023} (we did not run a permutation null on the anatomical comparison, so this is directional only). Second, the cross-dataset temporal-profile comparison shows that the two datasets emphasise different phases of the response. Norman's trial-locked profiles highlight the sustained phase, while Bellier's vocal-onset profiles highlight the transient onset. The ``song-tracking'' effect visible in \citet{NormanHaignere2022}'s 2-second clips is therefore best understood as a sustained post-onset response rather than a short onset transient. The two paradigms sample different halves of the same underlying response, which is expected given how differently the stimuli are presented.
+Our analysis narrows the previously known role of song-selective neural populations in decoding singing vs.\ instrumental music. Our results are consistent with the conclusion of \citet{NormanHaignere2022} that there are specialized neural populations that are most active following singing stimuli. However, our decoding model suggests that these song-selective populations are not necessary to decode song vs.\ instrumental music. Our RDM analysis of removing low-level features shows that much of the neural response to singing and instrumental music is based in basic sound structure. We cannot claim a robustly significant non-acoustic component, and we should not call the surviving structure a ``post-acoustic code.'' What we can say is that some geometry remains after regressing out the specific linear acoustic feature set of \citet{NormanHaignere2022}, that the surviving fraction is similar across subsets, and that the partialled peak arrives later in the trial ($1.37$--$1.47$~s, compared to raw peaks at $0.37$--$1.72$~s). These are the directions expected if the STG combines basic acoustic input with higher-order category cues \citep{BhayaGrossman2022,Hullett2016,Mesgarani2014,Yi2019,Leonard2024,Sankaran2024}, but they are suggestive rather than conclusive. Finally, the ``song-tracking'' effect visible in \citet{NormanHaignere2022}'s 2-second clips is best understood as a sustained post-onset response rather than a short onset transient. The stimulus and continuous-music paradigms sample different halves of the same underlying response, which is expected given how differently the stimuli are presented. Our results support a multi-system account of singing and instrumental music processing: neural populations likely respond to both low-level acoustic features and higher-order categorical cues, and regardless of whether the data are trial-locked to a sustained post-onset phase or sampled around transient stimulus changes, the decodable signal appears distributed rather than concentrated in any one neural population.
 
 \paragraph{Caveats.}
 (i) \emph{Sample size.} 33 Norman electrodes and 49 stimuli is small. Our partialled-divergence $p$-values sit near $0.05$ because $N$ is modest, not because the effect is obviously tiny. The signed direction and subset ordering are stable across bootstraps and shuffles; the absolute significance is under-powered.
-(ii) \emph{Acoustic feature bank.} We partial out the exact regressors \citet{NormanHaignere2022} use. Richer audio embeddings (e.g.\ HuBERT, self-supervised music encoders) would absorb more of the raw signal, so our surviving fraction is a conservative upper bound on the non-acoustic residual.
+(ii) \emph{Acoustic feature bank.} We partial out the exact regressors \citet{NormanHaignere2022} use. Richer audio embeddings, such as HuBERT or self-supervised music encoders, would absorb more of the raw signal, so our surviving fraction is a conservative upper bound on the non-acoustic residual.
 (iii) \emph{No permutation null on several Bellier comparisons.} We do not have a permutation null on the Bellier balanced-accuracy numbers or on the cross-temporal-generalisation stability gap in \S\ref{sec:tempstab}. The right-vs-left-STG ordering and the ``more stable code on song electrodes'' observation are therefore directional rather than formally significant. Adding these nulls is the single most fixable gap in the paper and is listed in Future Directions.
-(iv) \emph{Song-electrode labels are author-supplied and defined on the same dataset.} We inherit the component assignments from \citet{NormanHaignere2022} rather than re-deriving them on held-out stimuli. The matched random-subset control does not require the labels to be ``correct,'' and the null result cannot be driven by the labels being informative -- if they were, the song electrodes would sit in the upper tail of the random-draw distribution rather than near its middle. But a noisy or mis-specified label set could also produce the same null. A stronger follow-up would be to re-derive song-selectivity on a held-out stimulus split and then apply the random-subset control on the out-of-sample labels.
+(iv) \emph{Song-electrode labels are author-supplied and defined on the same dataset.} We inherit the component assignments from \citet{NormanHaignere2022} rather than re-deriving them on held-out stimuli. The matched random-subset control does not require the labels to be ``correct,'' and the null result cannot be driven by the labels being informative---if they were, the song electrodes would sit in the upper tail of the random-draw distribution rather than near its middle. But a noisy or mis-specified label set could also produce the same null. A stronger follow-up would be to re-derive song-selectivity on a held-out stimulus split and then apply the random-subset control on the out-of-sample labels.
 
 \paragraph{Future directions.} Four natural next steps, in rough order of payoff for the effort required:
-(i) add label-shuffle permutation nulls to the Bellier decoder (for both the overall bacc and the right-vs-left-STG subset comparison) and to the cross-temporal generalisation gap; this is the cheapest upgrade that would turn several currently directional claims into formally significant ones;
+(i) add label-shuffle permutation nulls to the Bellier decoder, for both the overall balanced accuracy and the right-vs-left-STG subset comparison, and to the cross-temporal generalisation gap;
 (ii) re-derive song-selectivity on a held-out stimulus split and re-apply the random-subset control on the out-of-sample labels, which would close the residual circularity in Caveat (iv);
 (iii) replace the acoustic regressor bank with a modern self-supervised audio embedding to push the surviving-fraction estimate in \S\ref{sec:acoustic} closer to its true upper bound;
 (iv) apply the partialled-divergence pipeline to the Bellier stimulus windows to ask whether the sustained vocal-tracking component that emerges in the continuous song also survives acoustic partialling.
-
-\paragraph{Novelty.} Our contributions on top of the published work are the matched random-subset control, the acoustic-partialled divergence pipeline, and the cross-dataset temporal-profile comparison (together with the interleaved-blocked-folds CV fix on Bellier). Taken together, these test whether the ``song-selective population exists'' result also implies disproportionate information content, and find that it does not.
-
-\paragraph{Selectivity versus information.}
-More broadly, our result illustrates why response selectivity and information privilege should be treated as separate claims. A neural site can respond more strongly to a category without being an unusually strong channel for decoding that category at fixed electrode count. In ECoG work, small labelled groups can look impressive when compared against a much larger pool even when size-matched controls would show similar decodability. Future claims about category-selective populations should therefore pair response-amplitude or component-based selectivity with size-matched information controls, not only with contrasts against the full grid.
 
 \paragraph{Code and data availability.} All analyses run from the repository root: \path{python logic/pipeline.py} (random seed 42) or \path{python scripts/generate_composite_figures.py} for the multi-panel figures (see \path{--help}, including \path{--only 3} for the Bellier composite alone). The full codebase, including \path{neuro120_main_reproduction.ipynb} (full write-up reproduction) and \path{neuro120_bellier_supplement.ipynb} (Bellier extension and supplementary figures), is available at \url{https://github.com/djordjeivanovic11/neuro120-project}. A separate document states course policy on generative-AI use. Norman--Haignere data are from the public release accompanying \citet{NormanHaignere2022}; Bellier ECoG data are from the public release accompanying \citet{Bellier2023}.
 
@@ -386,12 +391,52 @@ More broadly, our result illustrates why response selectivity and information pr
 \clearpage
 \begin{thebibliography}{99}
 \small
+\bibitem[Patel(2019)]{Patel2019}
+Patel, A.\ D. (2019).
+\emph{Evolutionary music cognition: Cross-species studies.}
+In Foundations in Music Psychology: Theory and Research, pp. 459--501.
+
 \bibitem[Bellier et al.(2023)]{Bellier2023}
 Bellier, L., Llorens, A., Marciano, D., Gunduz, A., Schalk, G., Brunner, P., \& Knight, R.\ T. (2023).
 \emph{Music can be reconstructed from human auditory cortex activity using nonlinear decoding models.}
 PLOS Biology, 21(8), e3002176.
 
-\bibitem[Bhaya-Grossman \& Chang(2022)]{BhayaGrossman2022}
+\bibitem[Mesgarani et al.(2014)]{Mesgarani2014}
+Mesgarani, N., Cheung, C., Johnson, K., \& Chang, E.\ F. (2014).
+\emph{Phonetic feature encoding in human superior temporal gyrus.}
+Science, 343(6174), 1006--1010.
+
+\bibitem[Norman-Haignere et al.(2015)]{NormanHaignere2015}
+Norman-Haignere, S., Kanwisher, N.\ G., \& McDermott, J.\ H. (2015).
+\emph{Distinct cortical pathways for music and speech revealed by hypothesis-free voxel decomposition.}
+Neuron, 88(6), 1281--1296.
+
+\bibitem[Norman-Haignere et al.(2022)]{NormanHaignere2022}
+Norman-Haignere, S.\ V., Feather, J., Boebinger, D., Brunner, P., Ritaccio, A., McDermott, J.\ H., Schalk, G., \& Kanwisher, N. (2022).
+\emph{A neural population selective for song in human auditory cortex.}
+Current Biology, 32(7), 1470--1484.e12.
+
+\bibitem[Yi et al.(2019)]{Yi2019}
+Yi, H.\ G., Leonard, M.\ K., \& Chang, E.\ F. (2019).
+\emph{The encoding of speech sounds in the superior temporal gyrus.}
+Neuron, 102(6), 1096--1110.
+
+\bibitem[Rogalsky et al.(2011)]{Rogalsky2011}
+Rogalsky, C., Rong, F., Saberi, K., \& Hickok, G. (2011).
+\emph{Functional anatomy of language and music perception: Temporal and structural factors investigated using functional magnetic resonance imaging.}
+Journal of Neuroscience, 31(10), 3843--3852.
+
+\bibitem[Abrams et al.(2011)]{Abrams2011}
+Abrams, D.\ A., Bhatara, A., Ryali, S., Balaban, E., Levitin, D.\ J., \& Menon, V. (2011).
+\emph{Decoding temporal structure in music and speech relies on shared brain resources but elicits different fine-scale spatial patterns.}
+Cerebral Cortex, 21(7), 1507--1518.
+
+\bibitem[Casey(2017)]{Casey2017}
+Casey, M.\ A. (2017).
+\emph{Music of the 7Ts: Predicting and decoding multivoxel fMRI responses with acoustic, schematic, and categorical music features.}
+Frontiers in Psychology, 8, 1179.
+
+\bibitem[Bhaya-Grossman and Chang(2022)]{BhayaGrossman2022}
 Bhaya-Grossman, I., \& Chang, E.\ F. (2022).
 \emph{Speech computations of the human superior temporal gyrus.}
 Annual Review of Psychology, 73, 79--102.
@@ -401,9 +446,9 @@ Hamilton, L.\ S., Edwards, E., \& Chang, E.\ F. (2018).
 \emph{A spatial map of onset and sustained responses to speech in the human superior temporal gyrus.}
 Current Biology, 28(12), 1860--1871.e4.
 
-\bibitem[Hamilton \& Huth(2020)]{HamiltonHuth2020}
+\bibitem[Hamilton and Huth(2020)]{HamiltonHuth2020}
 Hamilton, L.\ S., \& Huth, A.\ G. (2020).
-\emph{The revolution will not be controlled: natural stimuli in speech neuroscience.}
+\emph{The revolution will not be controlled: Natural stimuli in speech neuroscience.}
 Language, Cognition and Neuroscience, 35(5), 573--582.
 
 \bibitem[Holdgraf et al.(2017)]{Holdgraf2017}
@@ -421,30 +466,11 @@ Leonard, M.\ K., Gwilliams, L., Sellers, K.\ K., Chung, J.\ E., Xu, D., Mischler
 \emph{Large-scale single-neuron speech sound encoding across the depth of human cortex.}
 Nature, 626, 593--602.
 
-\bibitem[Mesgarani et al.(2014)]{Mesgarani2014}
-Mesgarani, N., Cheung, C., Johnson, K., \& Chang, E.\ F. (2014).
-\emph{Phonetic feature encoding in human superior temporal gyrus.}
-Science, 343(6174), 1006--1010.
-
-\bibitem[Norman-Haignere et al.(2015)]{NormanHaignere2015}
-Norman-Haignere, S., Kanwisher, N.\ G., \& McDermott, J.\ H. (2015).
-\emph{Distinct cortical pathways for music and speech revealed by hypothesis-free voxel decomposition.}
-Neuron, 88(6), 1281--1296.
-
-\bibitem[Norman-Haignere et al.(2022)]{NormanHaignere2022}
-Norman-Haignere, S.\ V., Feather, J., Boebinger, D., Brunner, P., Ritaccio, A., McDermott, J.\ H., Schalk, G., \& Kanwisher, N. (2022).
-\emph{A neural population selective for song in human auditory cortex.}
-Current Biology, 32(7), 1470--1484.e12.
-
 \bibitem[Sankaran et al.(2024)]{Sankaran2024}
 Sankaran, N., Leonard, M.\ K., Theunissen, F.\ E., \& Chang, E.\ F. (2024).
 \emph{Encoding of melody in the human auditory cortex.}
 Science Advances, 10(13), eadk0010.
 
-\bibitem[Yi et al.(2019)]{Yi2019}
-Yi, H.\ G., Leonard, M.\ K., \& Chang, E.\ F. (2019).
-\emph{The encoding of speech sounds in the superior temporal gyrus.}
-Neuron, 102(6), 1096--1110.
 \end{thebibliography}
 
 % =============================================================================
@@ -461,7 +487,7 @@ Below we summarise who led which parts of the project. The repository (\texttt{l
 Djordje implemented and maintained most of the codebase: end-to-end orchestration in \texttt{logic/pipeline.py}, caching and configuration, the main and Bellier supplement notebooks, and the scripts that regenerate tables and composite figures. He ran the headline analyses (matched random-subset null, acoustic partialling, cross-temporal matrices, LOO, Bellier decoder and profiles, nonlinear controls) and drafted Methods (\S\ref{sec:methods}), Results (\S\ref{sec:results}), and the bulk of the Discussion (\S\ref{sec:discussion}). He also handled GitHub maintenance and release hygiene so the project stays reproducible for graders.
 
 \paragraph{Georgia Hutchinson.}
-Georgia took the lead on explaining the statistical pipeline and analysis choices in plain language: how cross-validation is grouped, what the nulls test, and how to read the main figures without overstating. She worked closely with Djordje to align those explanations with the actual code paths and outputs. She contributed to validating the core Norman decoding setup, polishing presentation of results, and tightening captions and tables so they match the numbers in \texttt{results/tables/}.
+Georgia explained the statistical pipeline and analysis choices in plain language: how cross-validation is grouped, what the nulls test, and how to intepret the main figures. She worked closely with Djordje to align those explanations with the actual code paths and outputs. She contributed to validating the core Norman decoding setup, edited graphs and figure panels, and created captions and tables that match the results in \texttt{results/tables/}. She revised and wrote portions of the Introduction (\S\ref{sec:intro}), Results (\S\ref{sec:results}), and Discussion (\S\ref{sec:discussion}) sections, and edited a bit of the Methods (\S\ref{sec:methods}) section. 
 
 \paragraph{JaKayla Harris.}
 JaKayla led the literature survey that frames the Introduction (\S\ref{sec:intro}): prior work on auditory selectivity, how it connects to Norman--Haignere and Bellier, and careful handling of citations and bibliography formatting. She participated in group ideation on motivating questions and plausible follow-ups once the null results were clear, and helped keep the narrative accessible to a non-specialist reader.
